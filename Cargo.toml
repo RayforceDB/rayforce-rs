@@ -1,14 +1,17 @@
 [package]
-name = "rayforce-rs"
+name = "rayforce"
 version = "0.1.0"
 edition = "2021"
-description = "Rust bindings for RayforceDB - a high-performance time-series database"
+authors = ["RayforceDB Team"]
+description = "Safe Rust bindings for RayforceDB - the ultra-fast columnar database"
 license = "MIT"
-repository = "https://github.com/singaraiona/rayforce-rs"
-documentation = "https://github.com/singaraiona/rayforce-rs"
+repository = "https://github.com/RayforceDB/rayforce-rs"
+homepage = "https://rayforcedb.com"
+documentation = "https://rs.rayforcedb.com"
 readme = "README.md"
-keywords = ["database", "rayforce", "bindings", "time-series", "analytics"]
+keywords = ["database", "rayforce", "columnar", "time-series", "analytics"]
 categories = ["database", "api-bindings"]
+rust-version = "1.70"
 
 [lib]
 name = "rayforce"
