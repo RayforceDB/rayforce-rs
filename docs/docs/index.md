@@ -22,8 +22,8 @@ The ultra-fast columnar database, now with Rust's safety guarantees. Zero-cost a
 </div>
 
 <div class="hero-buttons">
-<a href="content/get-started/overview.html" class="md-button md-button--primary">Get Started</a>
-<a href="content/api/overview.html" class="md-button">API Reference</a>
+<a href="content/get-started/overview/" class="md-button md-button--primary">Get Started</a>
+<a href="content/api/overview/" class="md-button">API Reference</a>
 <a href="https://github.com/RayforceDB/rayforce-rs" class="md-button">View on GitHub</a>
 </div>
 

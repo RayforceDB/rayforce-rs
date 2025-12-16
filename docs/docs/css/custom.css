@@ -42,6 +42,21 @@
     --md-code-hl-generic-color: #04233b;
 }
 
+/* Dark mode code highlighting - brighter colors */
+[data-md-color-scheme="slate"]>* {
+    --md-code-hl-number-color: #ff8c5a;
+    --md-code-hl-special-color: #ff6b2b;
+    --md-code-hl-function-color: #dcdcaa;
+    --md-code-hl-constant-color: #ff8c5a;
+    --md-code-hl-keyword-color: #569cd6;
+    --md-code-hl-string-color: #ce9178;
+    --md-code-hl-name-color: #9cdcfe;
+    --md-code-hl-operator-color: #ff6b2b;
+    --md-code-hl-punctuation-color: #d4d4d4;
+    --md-code-hl-comment-color: #6a9955;
+    --md-code-hl-generic-color: #d4d4d4;
+}
+
 /* Header styling */
 .md-header {
     background-color: #04233b;
