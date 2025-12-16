@@ -1,0 +1,133 @@
+site_name: RayforceDB Rust
+site_description: Safe, ergonomic Rust bindings for RayforceDB - the ultra-fast columnar database
+repo_url: https://github.com/RayforceDB/rayforce-rs
+repo_name: GitHub
+
+theme:
+  name: material
+  custom_dir: overrides
+  icon:
+    repo: fontawesome/brands/github 
+  logo: images/logo_light_full.svg
+  favicon: images/favicon.svg
+  features:
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.tooltips
+    - navigation.indexes
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.share
+    - search.suggest
+
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: deep-orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Dark mode    
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: deep-orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+  icon:
+    logo: material/lumx
+
+
+extra:
+    social:
+      - icon: fontawesome/brands/github 
+        link: https://github.com/RayforceDB/rayforce-rs
+      - icon: fontawesome/brands/rust
+        link: https://crates.io/crates/rayforce
+      - icon: fontawesome/brands/x-twitter
+        link: https://x.com/RayforceDB
+      - icon: fontawesome/brands/reddit
+        link: https://www.reddit.com/r/rayforcedb/
+      - icon: simple/zulip
+        link: https://rayforcedb.zulipchat.com/join/l33sichu4vp7nf77hgdul4om/
+
+copyright: Copyright &copy; 2025 RayforceDB
+
+plugins:
+  - search:
+      separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.inlinehilite
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.arithmatex:
+      generic: true
+  - toc:
+      permalink: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.details
+  - pymdownx.tilde
+  - attr_list
+  - md_in_html
+  - tables
+  - admonition
+  - footnotes
+
+extra_css:
+  - css/custom.css
+
+# Page tree
+nav:
+  - Home: index.md
+
+  - Get Started:
+    - Overview: content/get-started/overview.md
+    - Installation: content/get-started/installation.md
+    - Quick Start: content/get-started/quickstart.md
+
+  - API Reference:
+    - Overview: content/api/overview.md
+    - Types:
+      - Scalars: content/api/types/scalars.md
+      - Containers: content/api/types/containers.md
+      - Table: content/api/types/table.md
+    - Queries:
+      - Select: content/api/queries/select.md
+      - Update: content/api/queries/update.md
+      - Insert: content/api/queries/insert.md
+      - Upsert: content/api/queries/upsert.md
+      - Joins: content/api/queries/joins.md
+    - FFI: content/api/ffi.md
+    - IPC: content/api/ipc.md
+
+  - Examples: content/examples/index.md
+

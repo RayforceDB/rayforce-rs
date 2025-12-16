@@ -2,3 +2,4 @@ target/
 *.log
 *.lock
 .rayhist.dat
+docs/site
