@@ -1,0 +1,30 @@
+//! Common test utilities and fixtures.
+//!
+//! Since only one Rayforce runtime can exist at a time,
+//! tests must run serially (use #[serial] attribute).
+
+use rayforce::{Rayforce, Result};
+
+/// Create a new runtime for testing.
+pub fn create_runtime() -> Result<Rayforce> {
+    Rayforce::new()
+}
+
+/// Macro to run a test with a fresh runtime.
+/// Usage: with_runtime!(rf, { ... })
+#[macro_export]
+macro_rules! with_runtime {
+    ($rf:ident, $body:block) => {{
+        let $rf = $crate::common::create_runtime().expect("Failed to create runtime");
+        $body
+    }};
+}
+
+/// Macro for tests that don't need the runtime reference but need it initialized.
+/// Usage: init_runtime!();
+#[macro_export]
+macro_rules! init_runtime {
+    () => {
+        let _rf = $crate::common::create_runtime().expect("Failed to create runtime");
+    };
+}

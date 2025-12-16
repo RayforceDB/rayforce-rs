@@ -1,209 +1,76 @@
-use rayforce::*;
-use std::io::Write;
-use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::TcpListener;
-use tokio::signal;
-use tokio::sync::{mpsc, oneshot};
+//! Basic example demonstrating Rayforce Rust bindings.
+//!
+//! This example shows how to:
+//! - Initialize the Rayforce runtime
+//! - Create and manipulate various data types
+//! - Build and query tables
+//! - Use the expression builder for queries
 
-fn print_prompt() {
-    print!("\x1b[32m⚡ \x1b[0m");
-    std::io::stdout().flush().unwrap();
-}
+use rayforce::{
+    RayDict, RayF64, RayI64, RayList, RayString, RaySymbol, RayType, RayVector, Rayforce, Result,
+};
 
-type EvalRequest = (String, mpsc::Sender<String>);
+fn main() -> Result<()> {
+    // Initialize the Rayforce runtime
+    println!("Initializing Rayforce runtime...");
+    let rf = Rayforce::new()?;
+    println!("Rayforce version: {}", rf.version());
 
-async fn handle_tcp_client(
-    mut stream: tokio::net::TcpStream,
-    eval_tx: mpsc::Sender<EvalRequest>,
-    mut shutdown_rx: oneshot::Receiver<()>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (reader, mut writer) = stream.split();
-    let mut reader = BufReader::new(reader);
-    let mut line = String::new();
+    // === Scalar Types ===
+    println!("\n=== Scalar Types ===");
 
-    writer.write_all(b"Connected to Rayforce REPL\n").await?;
-    writer.write_all(b"\x1b[32m> \x1b[0m").await?;
+    let i = RayI64::new(42);
+    println!("RayI64: {}", i);
 
-    loop {
-        tokio::select! {
-            _ = &mut shutdown_rx => {
-                break;
-            }
-            result = reader.read_line(&mut line) => {
-                match result {
-                    Ok(0) => break, // EOF
-                    Ok(_) => {
-                        let input = line.trim();
-                        if input == "exit" {
-                            break;
-                        }
+    let f = RayF64::new(3.14159);
+    println!("RayF64: {}", f);
 
-                        let (result_tx, mut result_rx) = mpsc::channel(1);
-                        eval_tx.send((input.to_string(), result_tx)).await?;
+    let s = RaySymbol::new("hello");
+    println!("RaySymbol: {}", s);
 
-                        if let Some(result) = result_rx.recv().await {
-                            writer.write_all(format!("{}\n", result).as_bytes()).await?;
-                        }
+    let str_val = RayString::new("Hello, Rayforce!");
+    println!("RayString: {}", str_val);
 
-                        line.clear();
-                        writer.write_all(b"\x1b[32m> \x1b[0m").await?;
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading from TCP client: {}", e);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
+    // === Vectors ===
+    println!("\n=== Vectors ===");
 
-async fn tcp_server(
-    eval_tx: mpsc::Sender<EvalRequest>,
-    mut shutdown_rx: oneshot::Receiver<()>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
-    println!("TCP server listening on 127.0.0.1:8080");
+    let int_vec = RayVector::<i64>::from_iter([1i64, 2, 3, 4, 5]);
+    println!("RayVector<i64>: {:?}", int_vec.as_slice());
 
-    loop {
-        tokio::select! {
-            _ = &mut shutdown_rx => {
-                break;
-            }
-            accept_result = listener.accept() => {
-                match accept_result {
-                    Ok((socket, addr)) => {
-                        println!("New connection from: {}", addr);
-                        let eval_tx = eval_tx.clone();
-                        let (_, shutdown_rx) = oneshot::channel();
-                        tokio::spawn(async move {
-                            if let Err(e) = handle_tcp_client(socket, eval_tx, shutdown_rx).await {
-                                eprintln!("Error handling TCP client: {}", e);
-                            }
-                        });
-                    }
-                    Err(e) => {
-                        eprintln!("Error accepting connection: {}", e);
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
+    let float_vec = RayVector::<f64>::from_iter([1.1, 2.2, 3.3, 4.4, 5.5]);
+    println!("RayVector<f64>: {:?}", float_vec.as_slice());
 
-async fn stdin_handler(
-    eval_tx: mpsc::Sender<EvalRequest>,
-    mut shutdown_rx: oneshot::Receiver<()>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let stdin_handle = io::stdin();
-    let mut reader = BufReader::new(stdin_handle);
-    let mut line = String::new();
+    let sym_vec = RayVector::<RaySymbol>::from_iter(["apple", "banana", "cherry"]);
+    println!("RayVector<RaySymbol>: {} items", sym_vec.len());
 
-    print_prompt();
+    // === Lists ===
+    println!("\n=== Lists ===");
 
-    loop {
-        tokio::select! {
-            _ = &mut shutdown_rx => {
-                break;
-            }
-            result = reader.read_line(&mut line) => {
-                match result {
-                    Ok(0) => break, // EOF
-                    Ok(_) => {
-                        let input = line.trim();
-                        if input == "exit" {
-                            break;
-                        }
+    let mut list = RayList::new();
+    list.push(1i64);
+    list.push("hello");
+    list.push(3.14f64);
+    println!("Mixed RayList: {} items", list.len());
 
-                        let (result_tx, mut result_rx) = mpsc::channel(1);
-                        eval_tx.send((input.to_string(), result_tx)).await?;
+    // === Dictionaries ===
+    println!("\n=== Dictionaries ===");
 
-                        if let Some(result) = result_rx.recv().await {
-                            println!("{}", result);
-                        }
+    let dict = RayDict::from_pairs([
+        ("name", RayString::new("Alice").ptr().clone()),
+        ("age", RayI64::new(30).ptr().clone()),
+    ])?;
+    println!("RayDict: {:?}", dict);
 
-                        line.clear();
-                        print_prompt();
-                        std::io::stdout().flush().unwrap();
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading input: {}", e);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
+    // === Eval ===
+    println!("\n=== Eval ===");
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create Rayforce instance in the main thread
-    let rayforce = RayforceBuilder::new()
-        .with_arg("-r")
-        .with_arg("0")
-        .build()
-        .unwrap();
+    // Basic evaluation examples
+    let eval_result = rf.eval("42")?;
+    println!("Eval '42': {}", eval_result);
 
-    // Get Rayforce version
-    let version = rayforce.get_version();
-    println!("Rayforce version: {}", version);
+    let string_result = rf.eval("\"hello world\"")?;
+    println!("Eval '\"hello world\"': {}", string_result);
 
-    // Create channel for evaluation requests
-    let (eval_tx, mut eval_rx) = mpsc::channel::<EvalRequest>(32);
-    let name = RayObj::from("rayforce-rs");
-
-    // Create shutdown channels
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let (shutdown_tx2, shutdown_rx2) = oneshot::channel();
-
-    // Spawn TCP server task
-    let eval_tx_clone = eval_tx.clone();
-    let tcp_server_handle = tokio::spawn(async move {
-        if let Err(e) = tcp_server(eval_tx_clone, shutdown_rx).await {
-            eprintln!("TCP server error: {}", e);
-        }
-    });
-
-    // Spawn stdin handler task
-    let eval_tx_clone = eval_tx.clone();
-    let stdin_handle = tokio::spawn(async move {
-        if let Err(e) = stdin_handler(eval_tx_clone, shutdown_rx2).await {
-            eprintln!("Stdin handler error: {}", e);
-        }
-    });
-
-    // Main evaluation loop
-    loop {
-        tokio::select! {
-            _ = signal::ctrl_c() => {
-                break;
-            }
-            Some((input, result_tx)) = eval_rx.recv() => {
-                let s = RayObj::from(input);
-                let obj = rayforce.eval_obj_str(&s, &name);
-                if !obj.is_nil() {
-                    let _ = result_tx.send(obj.to_string()).await;
-                }
-            }
-        }
-    }
-
-    // Signal all tasks to shut down
-    let _ = shutdown_tx.send(());
-    let _ = shutdown_tx2.send(());
-
-    // Wait for all tasks to finish
-    if let Err(e) = tcp_server_handle.await {
-        eprintln!("Error waiting for TCP server: {}", e);
-    }
-    if let Err(e) = stdin_handle.await {
-        eprintln!("Error waiting for stdin handler: {}", e);
-    }
-
-    println!("Bye!");
+    println!("\nDone!");
     Ok(())
 }

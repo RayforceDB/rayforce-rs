@@ -1,120 +1,239 @@
-# Rayforce Rust Bindings
+# rayforce-rs
 
-This crate provides Rust bindings for the Rayforce database library. It allows you to use Rayforce's functionality from Rust code in a safe and idiomatic way.
-
-## System Requirements
-
-Before using this crate, you need to have the Rayforce library installed on your system. The following components are required:
-
-- Rayforce C library
-- pkg-config
-- A C compiler (gcc or clang)
-
-## Installation
-
-### 1. Install Rayforce Library
-
-First, you need to install the Rayforce library on your system. The library should be installed in a standard location (e.g., `/usr/local/lib` and `/usr/local/include`).
-
-### 2. Install pkg-config File
-
-Copy the `rayforce.pc` file to your system's pkg-config directory:
-
-```bash
-# For system-wide installation (requires sudo)
-sudo cp rayforce.pc /usr/lib/pkgconfig/
-# OR for user-specific installation
-mkdir -p ~/.local/lib/pkgconfig
-cp rayforce.pc ~/.local/lib/pkgconfig/
-```
-
-### 3. Verify Installation
-
-You can verify the installation by running:
-
-```bash
-pkg-config --libs --cflags rayforce
-```
-
-This should output the necessary compiler and linker flags.
+Rust bindings for [RayforceDB](https://github.com/RayforceDB/rayforce) - a high-performance time-series database.
 
 ## Features
 
-- Safe Rust wrappers around the Rayforce C API
-- Memory safety through Rust's ownership system
-- Error handling through Rust's Result type
-- Comprehensive type system mapping
-- Thread-safe operations
+- **Complete Type System**: Full support for all Rayforce types including scalars (I64, F64, Symbol, Date, Time, Timestamp, GUID), containers (List, Vector, Dict), and Table.
+- **Query Builder**: Fluent API for building SELECT, UPDATE, INSERT, and UPSERT queries.
+- **Expression Builder**: Type-safe expression construction for WHERE clauses and computed columns.
+- **IPC Support**: Connect to remote Rayforce servers.
+- **Automatic Build**: Automatically clones and builds the Rayforce C library from source.
 
-## Usage
+## Installation
 
-Add this to your `Cargo.toml`:
+Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rayforce-rs = "0.1.0"
+rayforce-rs = "0.1"
 ```
 
-## Example
+### Build Requirements
 
-The crate includes a comprehensive example that demonstrates:
-- Runtime initialization and management
-- Version checking
-- Command line argument handling
-- File descriptor mapping
-- External runtime handling
-- Runtime execution
-- Proper cleanup
+- **Clang/LLVM**: Required for bindgen
+- **Git**: For cloning Rayforce sources
+- **Make**: For building the C library
+- **C compiler** (gcc or clang)
 
-Run it with:
+On Ubuntu/Debian:
 ```bash
-cargo run --example basic
+sudo apt install llvm-dev libclang-dev clang git build-essential
 ```
 
-The example shows how to:
-1. Initialize the Rayforce runtime
-2. Check the version
-3. Handle command line arguments
-4. Work with file descriptor mappings
-5. Access external runtime
-6. Execute the runtime
-7. Clean up resources
-
-## Safety
-
-The bindings are designed to be safe to use from Rust code. All unsafe operations are wrapped in safe interfaces that maintain Rust's safety guarantees. However, you should still be careful when:
-
-1. Managing object lifetimes
-2. Handling raw pointers
-3. Using unsafe functions directly
-
-## Building
-
-To build the crate, you need to have the Rayforce C library installed on your system. The build script will automatically generate the Rust bindings from the C header file.
-
+On macOS:
 ```bash
-cargo build
+xcode-select --install
+brew install llvm
 ```
 
-## Testing
+## Quick Start
 
-Run the tests with:
+```rust
+use rayforce::{Rayforce, Table, Column, Vector, Symbol, I64, Result};
 
-```bash
-cargo test
+fn main() -> Result<()> {
+    // Initialize the runtime
+    let rf = Rayforce::new()?;
+    
+    // Create a table
+    let table = Table::from_dict([
+        ("id", Vector::<i64>::from_iter([1i64, 2, 3]).as_ray_obj().clone()),
+        ("name", Vector::<Symbol>::from_iter(["Alice", "Bob", "Charlie"]).ptr().clone()),
+        ("score", Vector::<f64>::from_iter([95.5, 87.3, 92.1]).as_ray_obj().clone()),
+    ])?;
+    
+    println!("Table:\n{}", table);
+    
+    // Query with WHERE clause
+    let result = table
+        .select()
+        .columns(&["id", "name"])
+        .where_cond(Column::new("score").gt(90.0f64))
+        .execute()?;
+    
+    println!("High scorers:\n{}", result);
+    
+    // Evaluate Rayforce expressions
+    let sum = rf.eval("sum(1 2 3 4 5)")?;
+    println!("Sum: {}", sum);
+    
+    Ok(())
+}
 ```
 
-## Struct Alignment
+## Type System
 
-The `option_t` struct is defined with `aligned(16)` to ensure it is returned via registers (a pair of registers) on modern architectures. This is important for performance and compatibility.
+### Scalar Types
 
-```c
-typedef struct __attribute__((aligned(16))) {
-    option_code_t code;  // 8 bytes
-    raw_p value;         // 8 bytes
-} option_t;
+```rust
+use rayforce::{I64, F64, B8, Symbol, Date, Time, Timestamp, GUID};
+use chrono::{NaiveDate, NaiveTime, NaiveDateTime};
+use uuid::Uuid;
+
+let i = I64::new(42);
+let f = F64::new(3.14);
+let b = B8::new(true);
+let sym = Symbol::new("hello");
+
+// Temporal types
+let date = Date::from_naive_date(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+let time = Time::from_ms(43200000); // 12:00:00
+let ts = Timestamp::from_nanos(1705312800000000000);
+
+// GUID
+let guid = GUID::random();
+let guid2 = GUID::parse("550e8400-e29b-41d4-a716-446655440000")?;
 ```
+
+### Container Types
+
+```rust
+use rayforce::{List, Vector, Dict, Symbol};
+
+// Vectors (homogeneous)
+let ints: Vector<i64> = Vector::from_iter([1i64, 2, 3]);
+let floats: Vector<f64> = Vector::from_iter([1.1, 2.2, 3.3]);
+let symbols = Vector::<Symbol>::from_iter(["a", "b", "c"]);
+
+// Lists (heterogeneous)
+let mut list = List::new();
+list.push(I64::new(42).ptr().clone());
+list.push(RayString::new("hello").ptr().clone());
+
+// Dictionaries
+let dict = Dict::from_pairs([
+    ("name", RayString::new("Alice").ptr().clone()),
+    ("age", I64::new(30).ptr().clone()),
+])?;
+```
+
+### Tables
+
+```rust
+use rayforce::{Table, Column, Vector, Symbol};
+
+// Create from dictionary
+let table = Table::from_dict([
+    ("col1", Vector::<i64>::from_iter([1, 2, 3]).as_ray_obj().clone()),
+    ("col2", Vector::<Symbol>::from_iter(["a", "b", "c"]).ptr().clone()),
+])?;
+
+// Reference a named table
+let table_ref = Table::from_name("my_table");
+
+// Access columns
+let cols = table.columns()?;
+let row_count = table.len()?;
+```
+
+## Query Builder
+
+### SELECT
+
+```rust
+let result = table
+    .select()
+    .columns(&["id", "name", "score"])
+    .where_cond(Column::new("score").gt(80.0))
+    .group_by(&["department"])
+    .execute()?;
+```
+
+### UPDATE
+
+```rust
+let updated = table
+    .update()
+    .set("score", Column::new("score").sum())
+    .where_cond(Column::new("active").eq(true))
+    .execute()?;
+```
+
+### INSERT
+
+```rust
+let inserted = table
+    .insert()
+    .values([
+        ("id", I64::new(4).ptr().clone()),
+        ("name", Symbol::new("Dave").ptr().clone()),
+    ])
+    .execute()?;
+```
+
+### UPSERT
+
+```rust
+let upserted = table
+    .upsert(1)  // match by first 1 column(s)
+    .values([
+        ("id", I64::new(1).ptr().clone()),
+        ("score", F64::new(99.9).ptr().clone()),
+    ])
+    .execute()?;
+```
+
+## Joins
+
+```rust
+// Inner join
+let result = table1.inner_join(&table2, &["key_column"])?;
+
+// Left join
+let result = table1.left_join(&table2, &["key_column"])?;
+```
+
+## IPC (Remote Connection)
+
+```rust
+use rayforce::ipc::hopen;
+
+let conn = hopen("localhost", 5000)?;
+let result = conn.execute("select * from trades")?;
+conn.close()?;
+```
+
+## Expression Builder
+
+```rust
+use rayforce::Column;
+
+let col = Column::new("price");
+
+// Comparisons
+let expr1 = col.gt(100.0);      // price > 100
+let expr2 = col.le(200.0);      // price <= 200
+let expr3 = col.eq(150.0);      // price == 150
+
+// Combine with AND/OR
+let combined = col.gt(100.0).and(col.lt(200.0));
+
+// Aggregations
+let sum_expr = col.sum();
+let avg_expr = col.avg();
+let count_expr = col.count();
+```
+
+## Environment Variables
+
+- `RAYFORCE_GITHUB`: Override the Rayforce repository URL (default: `https://github.com/RayforceDB/rayforce.git`)
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+MIT License - see [LICENSE](LICENSE) for details.
+
+## See Also
+
+- [RayforceDB](https://github.com/RayforceDB/rayforce) - The Rayforce database
+- [rayforce-py](https://github.com/RayforceDB/rayforce-py) - Official Python bindings

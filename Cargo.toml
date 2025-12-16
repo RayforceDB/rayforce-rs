@@ -2,26 +2,35 @@
 name = "rayforce-rs"
 version = "0.1.0"
 edition = "2021"
-description = "Rust bindings for Rayforce database"
+description = "Rust bindings for RayforceDB - a high-performance time-series database"
 license = "MIT"
 repository = "https://github.com/singaraiona/rayforce-rs"
 documentation = "https://github.com/singaraiona/rayforce-rs"
 readme = "README.md"
-keywords = ["database", "rayforce", "bindings"]
-categories = ["database"]
+keywords = ["database", "rayforce", "bindings", "time-series", "analytics"]
+categories = ["database", "api-bindings"]
 
 [lib]
 name = "rayforce"
-crate-type = ["rlib"]
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 libc = "0.2"
-thiserror = "1.0"
+thiserror = "2.0"
+chrono = "0.4"
+uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
 tokio = { version = "1.36", features = ["full"] }
+once_cell = "1.19"
+serial_test = "3.0"
 
 [build-dependencies]
 bindgen = "0.69.1"
 cc = "1.0"
 pkg-config = "0.3"
+
+[features]
+default = []
+# Enable this to use system-installed rayforce instead of building from source
+system-rayforce = []

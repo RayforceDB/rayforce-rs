@@ -1,27 +1,23 @@
 /*
- *   Copyright (c) 2025 Anton Kundenko <singaraiona@gmail.com>
- *   All rights reserved.
-
- *   Permission is hereby granted, free of charge, to any person obtaining a copy
- *   of this software and associated documentation files (the "Software"), to deal
- *   in the Software without restriction, including without limitation the rights
- *   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- *   copies of the Software, and to permit persons to whom the Software is
- *   furnished to do so, subject to the following conditions:
-
- *   The above copyright notice and this permission notice shall be included in all
- *   copies or substantial portions of the Software.
-
- *   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- *   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- *   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- *   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- *   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- *   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- *   SOFTWARE.
+ * Rayforce Rust bindings wrapper header
+ * Auto-generated - includes all necessary rayforce headers
  */
 
-#include <rayforce/core/rayforce.h>
-#include <rayforce/core/def.h>
-#include <rayforce/core/runtime.h>
-#include <rayforce/core/string.h>
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/rayforce.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/def.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/runtime.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/string.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/eval.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/env.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/format.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/query.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/io.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/binary.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/guid.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/date.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/time.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/timestamp.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/error.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/items.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/update.h"
+#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-rs-5684e94112fa5fd8/out/rayforce-c/core/compose.h"
