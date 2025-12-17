@@ -3,6 +3,45 @@
 /* Rust-themed colors with RayforceDB navy */
 /* ==================== */
 
+/* ==================== */
+/* STICKY FOOTER LAYOUT */
+/* ==================== */
+
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.md-container {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.md-main {
+    flex: 1 0 auto;
+}
+
+.md-footer {
+    flex-shrink: 0;
+}
+
+/* Ensure hero section fills viewport exactly */
+body:has(.hero-section) .md-content,
+body:has(.hero-section) .md-content__inner,
+body:has(.hero-section) .md-main__inner,
+body:has(.hero-section) .md-main,
+body:has(.hero-section) .md-container {
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+}
+
 /* Rust brand colors + Rayforce navy */
 :root {
     --md-primary-fg-color: #04233b;
@@ -363,10 +402,11 @@ a.md-button:not(.md-button--primary):hover {
     overflow: visible;
     width: 100vw;
     margin-left: calc(-50vw + 50%);
-    min-height: calc(100vh - 5rem);
+    min-height: calc(100vh - var(--md-header-height, 48px) + 1.1rem);
+    min-height: calc(100dvh - var(--md-header-height, 48px) + 1.1rem);
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    box-sizing: border-box;
 }
 
 .md-main__inner {
@@ -412,7 +452,8 @@ a.md-button:not(.md-button--primary):hover {
     position: relative;
     z-index: 1;
     max-width: 900px;
-    margin: 0 auto;
+    margin: auto;
+    padding-bottom: 3rem;
 }
 
 .hero-logo {
