@@ -5,34 +5,34 @@
     Built for Rust
 </div>
 
-**rayforce-rs** provides safe, ergonomic Rust bindings for [RayforceDB](https://rayforcedb.com) - the ultra-fast columnar database.
+**rayforce-rs** provides safe, ergonomic Rust bindings for [RayforceDB](https://rayforcedb.com) — the ultra-fast columnar database. The current bindings target **rayforce 2.0**.
 
 ## Why Rust?
 
 RayforceDB is written in pure C for maximum performance. **rayforce-rs** brings that performance to Rust with:
 
-- **Memory Safety** - No null pointers, no buffer overflows, no data races
-- **Zero-Cost Abstractions** - Idiomatic Rust API that compiles to efficient C calls
-- **Fearless Concurrency** - Share data safely across threads
-- **Type Safety** - Catch errors at compile time, not runtime
+- **Memory Safety** — No null pointers, no buffer overflows, no data races
+- **Zero-Cost Abstractions** — Idiomatic Rust API that compiles to efficient C calls
+- **Fearless Concurrency** — Share data safely across threads
+- **Type Safety** — Catch errors at compile time, not runtime
 
 ## Quick Overview
 
 ```rust
-use rayforce::{Rayforce, RayI64, RayVector, RayTable};
+use rayforce::{Rayforce, RayI64, RayVector};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize RayforceDB runtime
-    let ray = Rayforce::new()?;
-    
+    // Initialize the RayforceDB runtime
+    let rf = Rayforce::new()?;
+
     // Create typed values
-    let price = RayI64::from_value(100);
-    let prices: RayVector<i64> = RayVector::from_iter([100, 200, 300]);
-    
-    // Evaluate expressions
-    let result = ray.eval("(+ 1 2 3)")?;
+    let _price = RayI64::new(100);
+    let _prices: RayVector<i64> = RayVector::from_iter([100i64, 200, 300]);
+
+    // Evaluate Rayfall expressions
+    let result = rf.eval("sum 1 2 3")?;
     println!("1 + 2 + 3 = {}", result);
-    
+
     Ok(())
 }
 ```
@@ -49,28 +49,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   
     Familiar patterns: `From`/`Into` traits, iterators, `Result` error handling, and smart pointers.
 
-- :material-database: **Full API Coverage**
-  
-    All RayforceDB types: scalars, vectors, lists, dicts, tables. All queries: select, update, insert, upsert, joins.
+- :material-database: **Tables & Rayfall**
 
-- :material-connection: **IPC Support**
-  
-    Connect to remote RayforceDB instances with async-ready networking.
+    Full type system: scalars, vectors, lists, dicts, tables. Run queries by composing Rayfall source and calling `Rayforce::eval` — joins, group-by, and aggregations all live in the engine.
+
+- :material-shield-check: **Safe ref counting**
+
+    Every `RayObj` owns one strong reference. `Clone` calls `ray_retain`; `Drop` calls `ray_release`. The borrow checker keeps lifetimes honest.
 
 </div>
 
 ## What's Next?
 
-1. **[Installation](installation.md)** - Add rayforce-rs to your project
-2. **[Quick Start](quickstart.md)** - Build your first application
-3. **[API Reference](../api/overview.md)** - Explore the full API
+1. **[Installation](installation.md)** — Add rayforce-rs to your project
+2. **[Quick Start](quickstart.md)** — Build your first application
+3. **[API Reference](../api/overview.md)** — Explore the full API
 
 ## System Requirements
 
 - **Rust**: 1.70 or later
-- **OS**: Linux, macOS (Windows support coming soon)
-- **Build Tools**: C compiler (gcc/clang) for building the RayforceDB C library
+- **OS**: Linux, macOS (Windows via WSL2)
+- **Build Tools**: a C17 compiler (gcc/clang), `make`, `git`, and LLVM/clang for `bindgen`
 
 !!! tip "Need Help?"
     Join the [RayforceDB Zulip](https://rayforcedb.zulipchat.com) community or open an issue on [GitHub](https://github.com/RayforceDB/rayforce-rs).
-

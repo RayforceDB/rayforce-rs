@@ -79,19 +79,13 @@ The ultra-fast columnar database, now with Rust's safety guarantees. Zero-cost a
 
     [:octicons-arrow-right-24: Types Reference](content/api/types/scalars.md)
 
-- :material-database:{ .lg .middle .feature-icon } **Full Feature Parity**
+- :material-database:{ .lg .middle .feature-icon } **Tables & Rayfall**
 
     ---
 
-    Complete coverage of RayforceDB functionality: tables, queries, joins, aggregations, and IPC communication.
+    Build columnar tables from Rust and run Rayfall queries through `Rayforce::eval`. Joins, aggregations, group-by — all expressed as Rayfall source.
 
-- :material-connection:{ .lg .middle .feature-icon } **IPC Support**
-
-    ---
-
-    Connect to remote RayforceDB instances with async-ready connection handling. Perfect for distributed systems.
-
-    [:octicons-arrow-right-24: IPC Guide](content/api/ipc.md)
+    [:octicons-arrow-right-24: Table API](content/api/types/table.md)
 
 - :material-scale-balance:{ .lg .middle .feature-icon } **MIT Licensed**
 
@@ -115,7 +109,7 @@ The ultra-fast columnar database, now with Rust's safety guarantees. Zero-cost a
 <button class="code-tab active" data-tab="basic">Basic Types</button>
 <button class="code-tab" data-tab="vectors">Vectors</button>
 <button class="code-tab" data-tab="tables">Tables</button>
-<button class="code-tab" data-tab="queries">Queries</button>
+<button class="code-tab" data-tab="queries">Eval</button>
 </div>
 
 <div class="code-panels">
@@ -125,17 +119,17 @@ The ultra-fast columnar database, now with Rust's safety guarantees. Zero-cost a
 
 <span class="code-keyword">fn</span> <span class="code-func">main</span>() -> <span class="code-type">Result</span>&lt;(), <span class="code-type">Box</span>&lt;<span class="code-keyword">dyn</span> <span class="code-type">std</span>::<span class="code-type">error</span>::<span class="code-type">Error</span>&gt;&gt; {
     <span class="code-comment">// Initialize the RayforceDB runtime</span>
-    <span class="code-keyword">let</span> ray = <span class="code-type">Rayforce</span>::<span class="code-func">new</span>()?;
+    <span class="code-keyword">let</span> rf = <span class="code-type">Rayforce</span>::<span class="code-func">new</span>()?;
     
     <span class="code-comment">// Create typed scalar values</span>
-    <span class="code-keyword">let</span> x = <span class="code-type">RayI64</span>::<span class="code-func">from_value</span>(<span class="code-number">42</span>);
-    <span class="code-keyword">let</span> y = <span class="code-type">RayI64</span>::<span class="code-func">from_value</span>(<span class="code-number">100</span>);
+    <span class="code-keyword">let</span> x = <span class="code-type">RayI64</span>::<span class="code-func">new</span>(<span class="code-number">42</span>);
+    <span class="code-keyword">let</span> y = <span class="code-type">RayI64</span>::<span class="code-func">new</span>(<span class="code-number">100</span>);
     
-    <span class="code-comment">// Create symbols</span>
+    <span class="code-comment">// Create symbols (interned through ray_sym_intern)</span>
     <span class="code-keyword">let</span> name = <span class="code-type">RaySymbol</span>::<span class="code-func">new</span>(<span class="code-string">"price"</span>);
     
-    <span class="code-comment">// Evaluate expressions</span>
-    <span class="code-keyword">let</span> result = ray.<span class="code-func">eval</span>(<span class="code-string">"(+ 1 2 3)"</span>)?;
+    <span class="code-comment">// Evaluate Rayfall expressions</span>
+    <span class="code-keyword">let</span> result = rf.<span class="code-func">eval</span>(<span class="code-string">"sum 1 2 3"</span>)?;
     <span class="code-macro">println!</span>(<span class="code-string">"Result: {}"</span>, result);  <span class="code-comment">// → 6</span>
     
     <span class="code-type">Ok</span>(())
@@ -148,24 +142,24 @@ The ultra-fast columnar database, now with Rust's safety guarantees. Zero-cost a
 <pre><code><span class="code-keyword">use</span> <span class="code-type">rayforce</span>::{<span class="code-type">Rayforce</span>, <span class="code-type">RayVector</span>, <span class="code-type">RayList</span>, <span class="code-type">RayString</span>};
 
 <span class="code-keyword">fn</span> <span class="code-func">main</span>() -> <span class="code-type">Result</span>&lt;(), <span class="code-type">Box</span>&lt;<span class="code-keyword">dyn</span> <span class="code-type">std</span>::<span class="code-type">error</span>::<span class="code-type">Error</span>&gt;&gt; {
-    <span class="code-keyword">let</span> ray = <span class="code-type">Rayforce</span>::<span class="code-func">new</span>()?;
+    <span class="code-keyword">let</span> rf = <span class="code-type">Rayforce</span>::<span class="code-func">new</span>()?;
     
-    <span class="code-comment">// Create vectors from iterators</span>
+    <span class="code-comment">// Typed numeric vectors</span>
     <span class="code-keyword">let</span> prices: <span class="code-type">RayVector</span>&lt;<span class="code-type">i64</span>&gt; = <span class="code-type">RayVector</span>::<span class="code-func">from_iter</span>(
-        [<span class="code-number">100</span>, <span class="code-number">200</span>, <span class="code-number">300</span>, <span class="code-number">150</span>, <span class="code-number">250</span>]
+        [<span class="code-number">100i64</span>, <span class="code-number">200</span>, <span class="code-number">300</span>, <span class="code-number">150</span>, <span class="code-number">250</span>]
     );
     
     <span class="code-keyword">let</span> quantities: <span class="code-type">RayVector</span>&lt;<span class="code-type">f64</span>&gt; = <span class="code-type">RayVector</span>::<span class="code-func">from_iter</span>(
         [<span class="code-number">1.5</span>, <span class="code-number">2.0</span>, <span class="code-number">3.5</span>, <span class="code-number">1.0</span>, <span class="code-number">4.0</span>]
     );
     
-    <span class="code-comment">// Create heterogeneous lists</span>
+    <span class="code-comment">// Heterogeneous boxed list</span>
     <span class="code-keyword">let</span> <span class="code-keyword">mut</span> list = <span class="code-type">RayList</span>::<span class="code-func">new</span>();
-    list.<span class="code-func">push</span>(<span class="code-type">RayObj</span>::<span class="code-func">from</span>(<span class="code-number">42_i64</span>));
-    list.<span class="code-func">push</span>(<span class="code-type">RayObj</span>::<span class="code-func">from</span>(<span class="code-string">"hello"</span>));
-    list.<span class="code-func">push</span>(<span class="code-type">RayObj</span>::<span class="code-func">from</span>(<span class="code-number">3.14_f64</span>));
+    list.<span class="code-func">push</span>(<span class="code-number">42i64</span>);
+    list.<span class="code-func">push</span>(<span class="code-string">"hello"</span>);
+    list.<span class="code-func">push</span>(<span class="code-number">3.14f64</span>);
     
-    <span class="code-comment">// Create strings</span>
+    <span class="code-comment">// Strings (SSO atom — inline below 7 bytes, pool-backed otherwise)</span>
     <span class="code-keyword">let</span> greeting = <span class="code-type">RayString</span>::<span class="code-func">from</span>(<span class="code-string">"Hello, RayforceDB!"</span>);
     <span class="code-macro">println!</span>(<span class="code-string">"String: {}"</span>, greeting);
     
@@ -176,25 +170,25 @@ The ultra-fast columnar database, now with Rust's safety guarantees. Zero-cost a
 
 <div class="code-panel" data-panel="tables">
 <div class="code-block">
-<pre><code><span class="code-keyword">use</span> <span class="code-type">rayforce</span>::{<span class="code-type">Rayforce</span>, <span class="code-type">RayTable</span>, <span class="code-type">RayColumn</span>, <span class="code-type">RayVector</span>};
+<pre><code><span class="code-keyword">use</span> <span class="code-type">rayforce</span>::{<span class="code-type">Rayforce</span>, <span class="code-type">RayTable</span>, <span class="code-type">RayVector</span>, <span class="code-type">RaySymbol</span>, <span class="code-type">RayType</span>};
 
 <span class="code-keyword">fn</span> <span class="code-func">main</span>() -> <span class="code-type">Result</span>&lt;(), <span class="code-type">Box</span>&lt;<span class="code-keyword">dyn</span> <span class="code-type">std</span>::<span class="code-type">error</span>::<span class="code-type">Error</span>&gt;&gt; {
-    <span class="code-keyword">let</span> ray = <span class="code-type">Rayforce</span>::<span class="code-func">new</span>()?;
+    <span class="code-keyword">let</span> rf = <span class="code-type">Rayforce</span>::<span class="code-func">new</span>()?;
     
-    <span class="code-comment">// Create a table with typed columns</span>
-    <span class="code-keyword">let</span> employees = <span class="code-type">RayTable</span>::<span class="code-func">builder</span>()
-        .<span class="code-func">column</span>(<span class="code-string">"name"</span>, <span class="code-type">vec!</span>[<span class="code-string">"Alice"</span>, <span class="code-string">"Bob"</span>, <span class="code-string">"Charlie"</span>])
-        .<span class="code-func">column</span>(<span class="code-string">"dept"</span>, <span class="code-type">vec!</span>[<span class="code-string">"IT"</span>, <span class="code-string">"HR"</span>, <span class="code-string">"IT"</span>])
-        .<span class="code-func">column</span>(<span class="code-string">"salary"</span>, <span class="code-type">vec!</span>[<span class="code-number">75000_i64</span>, <span class="code-number">65000</span>, <span class="code-number">85000</span>])
-        .<span class="code-func">build</span>()?;
+    <span class="code-comment">// Build a table from (name, column) pairs</span>
+    <span class="code-keyword">let</span> employees = <span class="code-type">RayTable</span>::<span class="code-func">from_dict</span>([
+        (<span class="code-string">"name"</span>,   <span class="code-type">RayVector</span>::&lt;<span class="code-type">RaySymbol</span>&gt;::<span class="code-func">from_iter</span>([<span class="code-string">"Alice"</span>, <span class="code-string">"Bob"</span>, <span class="code-string">"Charlie"</span>]).<span class="code-func">as_ray_obj</span>().<span class="code-func">clone</span>()),
+        (<span class="code-string">"dept"</span>,   <span class="code-type">RayVector</span>::&lt;<span class="code-type">RaySymbol</span>&gt;::<span class="code-func">from_iter</span>([<span class="code-string">"IT"</span>, <span class="code-string">"HR"</span>, <span class="code-string">"IT"</span>]).<span class="code-func">as_ray_obj</span>().<span class="code-func">clone</span>()),
+        (<span class="code-string">"salary"</span>, <span class="code-type">RayVector</span>::&lt;<span class="code-type">i64</span>&gt;::<span class="code-func">from_iter</span>([<span class="code-number">75000i64</span>, <span class="code-number">65000</span>, <span class="code-number">85000</span>]).<span class="code-func">as_ray_obj</span>().<span class="code-func">clone</span>()),
+    ])?;
     
     <span class="code-comment">// Access columns</span>
-    <span class="code-keyword">let</span> salaries = employees.<span class="code-func">column</span>(<span class="code-string">"salary"</span>)?;
-    <span class="code-macro">println!</span>(<span class="code-string">"Salaries: {:?}"</span>, salaries);
+    <span class="code-keyword">let</span> salaries = employees.<span class="code-func">get_column</span>(<span class="code-string">"salary"</span>)?;
+    <span class="code-macro">println!</span>(<span class="code-string">"Salaries: {}"</span>, salaries);
     
-    <span class="code-comment">// Get table dimensions</span>
-    <span class="code-macro">println!</span>(<span class="code-string">"Rows: {}, Cols: {}"</span>, 
-        employees.<span class="code-func">nrows</span>(), 
+    <span class="code-comment">// Schema introspection</span>
+    <span class="code-macro">println!</span>(<span class="code-string">"Rows: {}, Cols: {}"</span>,
+        employees.<span class="code-func">len</span>()?,
         employees.<span class="code-func">ncols</span>()
     );
     
@@ -205,35 +199,31 @@ The ultra-fast columnar database, now with Rust's safety guarantees. Zero-cost a
 
 <div class="code-panel" data-panel="queries">
 <div class="code-block">
-<pre><code><span class="code-keyword">use</span> <span class="code-type">rayforce</span>::{<span class="code-type">Rayforce</span>, <span class="code-type">RayTable</span>, <span class="code-type">RaySelectQuery</span>};
+<pre><code><span class="code-keyword">use</span> <span class="code-type">rayforce</span>::{<span class="code-type">Rayforce</span>, <span class="code-type">RayTable</span>};
 
 <span class="code-keyword">fn</span> <span class="code-func">main</span>() -> <span class="code-type">Result</span>&lt;(), <span class="code-type">Box</span>&lt;<span class="code-keyword">dyn</span> <span class="code-type">std</span>::<span class="code-type">error</span>::<span class="code-type">Error</span>&gt;&gt; {
-    <span class="code-keyword">let</span> ray = <span class="code-type">Rayforce</span>::<span class="code-func">new</span>()?;
+    <span class="code-keyword">let</span> rf = <span class="code-type">Rayforce</span>::<span class="code-func">new</span>()?;
+
+    <span class="code-comment">// Build a table in Rayfall and bind it under a name in the global env.</span>
+    rf.<span class="code-func">eval</span>(<span class="code-string">r#"(set t (table [name dept salary]
+        (list [`Alice `Bob `Charlie `David]
+              [`IT `HR `IT `Sales]
+              [75000 65000 85000 70000])))"#</span>)?;
+    <span class="code-keyword">let</span> employees = <span class="code-type">RayTable</span>::<span class="code-func">from_name</span>(<span class="code-string">"t"</span>)?;
+    <span class="code-macro">println!</span>(<span class="code-string">"loaded {} rows"</span>, employees.<span class="code-func">len</span>()?);
     
-    <span class="code-comment">// Create employees table</span>
-    <span class="code-keyword">let</span> employees = <span class="code-type">RayTable</span>::<span class="code-func">from_eval</span>(&ray, <span class="code-string">r#"
-        (table [name dept salary]
-            (list 
-                ["Alice" "Bob" "Charlie" "David"]
-                ['IT 'HR 'IT 'Sales]
-                [75000 65000 85000 70000]))
-    "#</span>)?;
+    <span class="code-comment">// Run queries by composing Rayfall source and calling rf.eval.</span>
+    <span class="code-comment">// In 2.0 the native Rust query builder is gone; queries flow through eval.</span>
+    <span class="code-keyword">let</span> high_earners = rf.<span class="code-func">eval</span>(
+        <span class="code-string">"(select {from:t name:name salary:salary where:(> salary 70000)})"</span>
+    )?;
     
-    <span class="code-comment">// Select with filtering</span>
-    <span class="code-keyword">let</span> high_earners = employees
-        .<span class="code-func">select</span>()
-        .<span class="code-func">columns</span>([<span class="code-string">"name"</span>, <span class="code-string">"salary"</span>])
-        .<span class="code-func">filter</span>(<span class="code-string">"(> salary 70000)"</span>)
-        .<span class="code-func">execute</span>()?;
+    <span class="code-keyword">let</span> by_dept = rf.<span class="code-func">eval</span>(
+        <span class="code-string">"(select {from:t by: dept avg_salary:(avg salary) count:(count name)})"</span>
+    )?;
     
-    <span class="code-comment">// Group by with aggregation</span>
-    <span class="code-keyword">let</span> by_dept = employees
-        .<span class="code-func">select</span>()
-        .<span class="code-func">agg</span>(<span class="code-string">"avg_salary"</span>, <span class="code-string">"(avg salary)"</span>)
-        .<span class="code-func">agg</span>(<span class="code-string">"count"</span>, <span class="code-string">"(count name)"</span>)
-        .<span class="code-func">group_by</span>(<span class="code-string">"dept"</span>)
-        .<span class="code-func">execute</span>()?;
-    
+    <span class="code-macro">println!</span>(<span class="code-string">"high earners:\n{}"</span>, high_earners);
+    <span class="code-macro">println!</span>(<span class="code-string">"by dept:\n{}"</span>, by_dept);
     <span class="code-type">Ok</span>(())
 }</code></pre>
 </div>

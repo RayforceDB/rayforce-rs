@@ -1,5 +1,5 @@
 /*
-*   Copyright (c) 2025 Anton Kundenko <singaraiona@gmail.com>
+*   Copyright (c) 2025-2026 Anton Kundenko <singaraiona@gmail.com>
 *   All rights reserved.
 
 *   Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -21,29 +21,30 @@
 *   SOFTWARE.
 */
 
-//! Container types for Rayforce.
+//! Container types for Rayforce 2.0.
+
 use crate::error::{RayforceError, Result};
 use crate::ffi::{self, RayObj};
 use crate::types::{RayType, RaySymbol};
 use crate::*;
+use std::ffi::CStr;
 use std::fmt;
 use std::marker::PhantomData;
 
-/// A generic list that can hold any Rayforce objects.
+// ---------------------------------------------------------------------------
+// RayList — heterogeneous boxed list (`RAY_LIST`).
+// ---------------------------------------------------------------------------
+
 #[derive(Clone)]
 pub struct RayList {
     ptr: RayObj,
 }
 
 impl RayList {
-    /// Create a new empty list.
     pub fn new() -> Self {
-        Self {
-            ptr: ffi::new_list(),
-        }
+        Self { ptr: ffi::new_list() }
     }
 
-    /// Create a list from an iterator of items that can be converted to RayObj.
     pub fn from_iter<T, I>(items: I) -> Self
     where
         T: Into<RayObj>,
@@ -56,38 +57,26 @@ impl RayList {
         list
     }
 
-    /// Get the length of the list.
     pub fn len(&self) -> usize {
         self.ptr.len() as usize
     }
 
-    /// Check if the list is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Push an item to the list.
     pub fn push<T: Into<RayObj>>(&mut self, item: T) {
         ffi::push_to_list(&mut self.ptr, item.into());
     }
 
-    /// Get an item at an index.
     pub fn get(&self, idx: usize) -> Option<RayObj> {
         if idx >= self.len() {
             None
         } else {
-            ffi::get_at_index(&self.ptr, idx as i64)
+            ffi::list_get(&self.ptr, idx as i64)
         }
     }
 
-    /// Set an item at an index.
-    pub fn set<T: Into<RayObj>>(&mut self, idx: usize, item: T) {
-        if idx < self.len() {
-            ffi::insert_at_index(&mut self.ptr, idx as i64, item.into());
-        }
-    }
-
-    /// Iterate over items as RayObj.
     pub fn iter(&self) -> impl Iterator<Item = RayObj> + '_ {
         (0..self.len()).filter_map(move |i| self.get(i))
     }
@@ -100,7 +89,7 @@ impl Default for RayList {
 }
 
 impl RayType for RayList {
-    const TYPE_CODE: i8 = TYPE_LIST as i8;
+    const TYPE_CODE: i8 = RAY_LIST as i8;
     const RAY_NAME: &'static str = "RayList";
 
     fn from_ptr(ptr: RayObj) -> Result<Self> {
@@ -136,10 +125,12 @@ impl<T: Into<RayObj>> FromIterator<T> for RayList {
     }
 }
 
-/// Type alias for backward compatibility.
 pub type List = RayList;
 
-/// A homogeneous vector of elements.
+// ---------------------------------------------------------------------------
+// RayVector<T> — homogeneous typed vectors.
+// ---------------------------------------------------------------------------
+
 pub struct RayVector<T> {
     ptr: RayObj,
     _marker: PhantomData<T>,
@@ -155,22 +146,19 @@ impl<T> Clone for RayVector<T> {
 }
 
 impl<T> RayVector<T> {
-    /// Get the length of the vector.
     pub fn len(&self) -> usize {
         self.ptr.len() as usize
     }
 
-    /// Check if the vector is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Get the underlying RayObj.
     pub fn as_ray_obj(&self) -> &RayObj {
         &self.ptr
     }
 
-    /// Get the type code of elements.
+    /// Type tag of the vector itself (not the element atom).
     pub fn element_type_code(&self) -> i8 {
         self.ptr.type_code()
     }
@@ -188,19 +176,18 @@ impl<T> fmt::Display for RayVector<T> {
     }
 }
 
-// RayVector of i64
+// ---- RayVector<i64> ----
+
 impl RayVector<i64> {
-    /// Create a new i64 vector.
-    pub fn new(len: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         unsafe {
             Self {
-                ptr: RayObj::from_raw(vector(TYPE_I64 as i8, len as i64)),
+                ptr: RayObj::from_raw(ray_vec_new(RAY_I64 as i8, capacity as i64)),
                 _marker: PhantomData,
             }
         }
     }
 
-    /// Create from a slice.
     pub fn from_slice(data: &[i64]) -> Self {
         Self {
             ptr: RayObj::from(data),
@@ -208,31 +195,19 @@ impl RayVector<i64> {
         }
     }
 
-    /// Create from an iterator.
     pub fn from_iter<I: IntoIterator<Item = i64>>(iter: I) -> Self {
         let data: Vec<i64> = iter.into_iter().collect();
         Self::from_slice(&data)
     }
 
-    /// Get the data as a slice.
     pub fn as_slice(&self) -> &[i64] {
         unsafe {
-            let len = ffi::get_obj_len(&self.ptr) as usize;
+            let len = self.ptr.len() as usize;
             let raw = ffi::get_obj_raw_ptr(&self.ptr) as *const i64;
             std::slice::from_raw_parts(raw, len)
         }
     }
 
-    /// Get the data as a mutable slice.
-    pub fn as_mut_slice(&mut self) -> &mut [i64] {
-        unsafe {
-            let len = ffi::get_obj_len(&self.ptr) as usize;
-            let raw = ffi::get_obj_raw_ptr(&self.ptr) as *mut i64;
-            std::slice::from_raw_parts_mut(raw, len)
-        }
-    }
-
-    /// Get an element.
     pub fn get(&self, idx: usize) -> Option<i64> {
         if idx >= self.len() {
             None
@@ -241,16 +216,26 @@ impl RayVector<i64> {
         }
     }
 
-    /// Set an element.
+    /// Overwrite element `idx` in place.
+    ///
+    /// Walks `ray_vec_set` and adopts the COW-returned vector.
     pub fn set(&mut self, idx: usize, value: i64) {
-        if idx < self.len() {
-            self.as_mut_slice()[idx] = value;
+        if idx >= self.len() {
+            return;
+        }
+        unsafe {
+            let new_ptr = ray_vec_set(
+                self.ptr.as_ptr(),
+                idx as i64,
+                &value as *const i64 as *const std::ffi::c_void,
+            );
+            replace_ray_obj(&mut self.ptr, new_ptr);
         }
     }
 }
 
 impl RayType for RayVector<i64> {
-    const TYPE_CODE: i8 = TYPE_I64 as i8;
+    const TYPE_CODE: i8 = RAY_I64 as i8;
     const RAY_NAME: &'static str = "RayVector<i64>";
 
     fn from_ptr(ptr: RayObj) -> Result<Self> {
@@ -274,19 +259,18 @@ impl FromIterator<i64> for RayVector<i64> {
     }
 }
 
-// RayVector of f64
+// ---- RayVector<f64> ----
+
 impl RayVector<f64> {
-    /// Create a new f64 vector.
-    pub fn new(len: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         unsafe {
             Self {
-                ptr: RayObj::from_raw(vector(TYPE_F64 as i8, len as i64)),
+                ptr: RayObj::from_raw(ray_vec_new(RAY_F64 as i8, capacity as i64)),
                 _marker: PhantomData,
             }
         }
     }
 
-    /// Create from a slice.
     pub fn from_slice(data: &[f64]) -> Self {
         Self {
             ptr: RayObj::from(data),
@@ -294,31 +278,19 @@ impl RayVector<f64> {
         }
     }
 
-    /// Create from an iterator.
     pub fn from_iter<I: IntoIterator<Item = f64>>(iter: I) -> Self {
         let data: Vec<f64> = iter.into_iter().collect();
         Self::from_slice(&data)
     }
 
-    /// Get the data as a slice.
     pub fn as_slice(&self) -> &[f64] {
         unsafe {
-            let len = ffi::get_obj_len(&self.ptr) as usize;
+            let len = self.ptr.len() as usize;
             let raw = ffi::get_obj_raw_ptr(&self.ptr) as *const f64;
             std::slice::from_raw_parts(raw, len)
         }
     }
 
-    /// Get the data as a mutable slice.
-    pub fn as_mut_slice(&mut self) -> &mut [f64] {
-        unsafe {
-            let len = ffi::get_obj_len(&self.ptr) as usize;
-            let raw = ffi::get_obj_raw_ptr(&self.ptr) as *mut f64;
-            std::slice::from_raw_parts_mut(raw, len)
-        }
-    }
-
-    /// Get an element.
     pub fn get(&self, idx: usize) -> Option<f64> {
         if idx >= self.len() {
             None
@@ -327,16 +299,23 @@ impl RayVector<f64> {
         }
     }
 
-    /// Set an element.
     pub fn set(&mut self, idx: usize, value: f64) {
-        if idx < self.len() {
-            self.as_mut_slice()[idx] = value;
+        if idx >= self.len() {
+            return;
+        }
+        unsafe {
+            let new_ptr = ray_vec_set(
+                self.ptr.as_ptr(),
+                idx as i64,
+                &value as *const f64 as *const std::ffi::c_void,
+            );
+            replace_ray_obj(&mut self.ptr, new_ptr);
         }
     }
 }
 
 impl RayType for RayVector<f64> {
-    const TYPE_CODE: i8 = TYPE_F64 as i8;
+    const TYPE_CODE: i8 = RAY_F64 as i8;
     const RAY_NAME: &'static str = "RayVector<f64>";
 
     fn from_ptr(ptr: RayObj) -> Result<Self> {
@@ -360,19 +339,22 @@ impl FromIterator<f64> for RayVector<f64> {
     }
 }
 
-// RayVector of RaySymbol
+// ---- RayVector<RaySymbol> ----
+//
+// A `RAY_SYM` column stores an int64 symbol ID per element (W64 width).
+// Symbol IDs come from `ray_sym_intern`. We always pick W64 so the
+// vector can grow without rewriting existing entries.
+
 impl RayVector<RaySymbol> {
-    /// Create a new symbol vector.
-    pub fn new(len: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         unsafe {
             Self {
-                ptr: RayObj::from_raw(vector(TYPE_SYMBOL as i8, len as i64)),
+                ptr: RayObj::from_raw(ray_sym_vec_new(RAY_SYM_W64 as u8, capacity as i64)),
                 _marker: PhantomData,
             }
         }
     }
 
-    /// Create from an iterator of strings.
     pub fn from_iter<S, I>(iter: I) -> Self
     where
         S: AsRef<str>,
@@ -380,22 +362,24 @@ impl RayVector<RaySymbol> {
     {
         let items: Vec<_> = iter.into_iter().collect();
         unsafe {
-            let obj = vector(TYPE_SYMBOL as i8, items.len() as i64);
-            let dst = ffi::get_obj_raw_ptr(&RayObj::from_raw(clone_obj(obj))) as *mut i64;
-            for (i, s) in items.iter().enumerate() {
-                // Intern the symbol and get its ID
-                let sym = ffi::new_symbol(s.as_ref());
-                let id = *(*sym.as_ptr()).__bindgen_anon_1.i64_.as_ref();
-                *dst.add(i) = id;
+            let mut v = ray_sym_vec_new(RAY_SYM_W64 as u8, items.len() as i64);
+            for s in &items {
+                let s = s.as_ref();
+                let id = ray_sym_intern(s.as_ptr() as *const i8, s.len());
+                let new_v = ray_vec_append(v, &id as *const i64 as *const std::ffi::c_void);
+                if new_v != v && !v.is_null() {
+                    ray_release(v);
+                }
+                v = new_v;
             }
             Self {
-                ptr: RayObj::from_raw(obj),
+                ptr: RayObj::from_raw(v),
                 _marker: PhantomData,
             }
         }
     }
 
-    /// Get a symbol at an index.
+    /// Resolve the symbol at `idx` back to its interned name.
     pub fn get(&self, idx: usize) -> Option<String> {
         if idx >= self.len() {
             return None;
@@ -403,18 +387,23 @@ impl RayVector<RaySymbol> {
         unsafe {
             let raw = ffi::get_obj_raw_ptr(&self.ptr) as *const i64;
             let id = *raw.add(idx);
-            let cstr = str_from_symbol(id);
-            if cstr.is_null() {
-                None
-            } else {
-                Some(std::ffi::CStr::from_ptr(cstr).to_string_lossy().into_owned())
+            let s_obj = ray_sym_str(id);
+            if s_obj.is_null() {
+                return None;
             }
+            let p = ray_str_ptr(s_obj);
+            if p.is_null() {
+                return None;
+            }
+            let n = ray_str_len(s_obj);
+            let bytes = std::slice::from_raw_parts(p as *const u8, n);
+            Some(String::from_utf8_lossy(bytes).into_owned())
         }
     }
 }
 
 impl RayType for RayVector<RaySymbol> {
-    const TYPE_CODE: i8 = TYPE_SYMBOL as i8;
+    const TYPE_CODE: i8 = RAY_SYM as i8;
     const RAY_NAME: &'static str = "RayVector<RaySymbol>";
 
     fn from_ptr(ptr: RayObj) -> Result<Self> {
@@ -432,46 +421,48 @@ impl RayType for RayVector<RaySymbol> {
     }
 }
 
-/// Type alias for backward compatibility.
 pub type Vector<T> = RayVector<T>;
 
-/// String type (vector of characters).
+// ---------------------------------------------------------------------------
+// RayString — single string atom (`-RAY_STR`).
+// ---------------------------------------------------------------------------
+//
+// 2.0 changed strings from "C8 vector of chars" to a dedicated atom
+// type with SSO (≤ 7 bytes inline, longer values in a pool).
+
 #[derive(Clone)]
 pub struct RayString {
     ptr: RayObj,
 }
 
 impl RayString {
-    /// Create a new string.
     pub fn new(s: &str) -> Self {
-        Self {
-            ptr: RayObj::from(s),
-        }
+        Self { ptr: RayObj::from(s) }
     }
 
-    /// Get the string value.
     pub fn to_string(&self) -> String {
         unsafe {
-            let len = ffi::get_obj_len(&self.ptr) as usize;
-            let raw = ffi::get_obj_raw_ptr(&self.ptr);
-            let bytes = std::slice::from_raw_parts(raw, len);
+            let p = ray_str_ptr(self.ptr.as_ptr());
+            if p.is_null() {
+                return String::new();
+            }
+            let n = ray_str_len(self.ptr.as_ptr());
+            let bytes = std::slice::from_raw_parts(p as *const u8, n);
             String::from_utf8_lossy(bytes).into_owned()
         }
     }
 
-    /// Get the length.
     pub fn len(&self) -> usize {
-        self.ptr.len() as usize
+        unsafe { ray_str_len(self.ptr.as_ptr()) }
     }
 
-    /// Check if empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
 impl RayType for RayString {
-    const TYPE_CODE: i8 = TYPE_C8 as i8;
+    const TYPE_CODE: i8 = -(RAY_STR as i8);
     const RAY_NAME: &'static str = "RayString";
 
     fn from_ptr(ptr: RayObj) -> Result<Self> {
@@ -513,20 +504,25 @@ impl From<String> for RayString {
     }
 }
 
-/// Dictionary type (key-value mapping).
+// ---------------------------------------------------------------------------
+// RayDict — `RAY_DICT`.
+// ---------------------------------------------------------------------------
+
 #[derive(Clone)]
 pub struct RayDict {
     ptr: RayObj,
 }
 
 impl RayDict {
-    /// Create a new dictionary from keys and values.
+    /// Wrap a freshly built dict from `keys` and `vals`. Both are
+    /// consumed by `ray_dict_new`.
     pub fn new(keys: RayObj, values: RayObj) -> Result<Self> {
         let ptr = ffi::new_dict(keys, values)?;
         Ok(Self { ptr })
     }
 
-    /// Create a dictionary from symbol keys and values.
+    /// Build a dict from `(name, value)` pairs where each name is interned
+    /// to a symbol.
     pub fn from_pairs<K, V, I>(pairs: I) -> Result<Self>
     where
         K: AsRef<str>,
@@ -539,80 +535,61 @@ impl RayDict {
         for (_, v) in items {
             values.push(v);
         }
-        
-        unsafe {
-            let d = dict(keys.ptr.as_ptr(), values.ptr.as_ptr());
-            if d.is_null() {
-                return Err(RayforceError::AllocationFailed);
-            }
-            std::mem::forget(keys);
-            std::mem::forget(values);
-            Ok(Self {
-                ptr: RayObj::from_raw(d),
-            })
-        }
+        // Hand off ownership of the keys vector and values list.
+        Self::new(keys.ptr.clone(), values.ptr().clone())
     }
 
-    /// Get a value by key.
+    /// Return the underlying value for `key` (interned as a symbol).
+    /// `ray_dict_get` returns an owned reference on hit, NULL on miss.
     pub fn get(&self, key: &str) -> Option<RayObj> {
         let key_sym = ffi::new_symbol(key);
         unsafe {
-            let val = at_obj(self.ptr.as_ptr(), key_sym.as_ptr());
+            let val = ray_dict_get(self.ptr.as_ptr(), key_sym.as_ptr());
             if val.is_null() {
                 None
             } else {
-                Some(RayObj::from_raw(clone_obj(val)))
+                Some(RayObj::from_raw(val))
             }
         }
     }
 
-    /// Get the keys.
+    /// Borrowed reference to the dict's keys vector.
     pub fn keys(&self) -> RayObj {
         unsafe {
-            // Dict is structured as [keys, values] - get first element
-            let keys = at_idx(self.ptr.as_ptr(), 0);
-            if keys.is_null() {
+            let k = ray_dict_keys(self.ptr.as_ptr());
+            if k.is_null() {
                 ffi::new_list()
             } else {
-                RayObj::from_raw(clone_obj(keys))
+                ray_retain(k);
+                RayObj::from_raw(k)
             }
         }
     }
 
-    /// Get the values.
+    /// Borrowed reference to the dict's values vector.
     pub fn values(&self) -> RayObj {
         unsafe {
-            // Dict is structured as [keys, values] - get second element
-            let values = at_idx(self.ptr.as_ptr(), 1);
-            if values.is_null() {
+            let v = ray_dict_vals(self.ptr.as_ptr());
+            if v.is_null() {
                 ffi::new_list()
             } else {
-                RayObj::from_raw(clone_obj(values))
+                ray_retain(v);
+                RayObj::from_raw(v)
             }
         }
     }
 
-    /// Get the number of key-value pairs.
     pub fn len(&self) -> usize {
-        unsafe {
-            let keys = at_idx(self.ptr.as_ptr(), 0);
-            if keys.is_null() {
-                0
-            } else {
-                let keys_obj = RayObj::from_raw(clone_obj(keys));
-                ffi::get_obj_len(&keys_obj) as usize
-            }
-        }
+        unsafe { ray_dict_len(self.ptr.as_ptr()) as usize }
     }
 
-    /// Check if the dictionary is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
 impl RayType for RayDict {
-    const TYPE_CODE: i8 = TYPE_DICT as i8;
+    const TYPE_CODE: i8 = RAY_DICT as i8;
     const RAY_NAME: &'static str = "RayDict";
 
     fn from_ptr(ptr: RayObj) -> Result<Self> {
@@ -642,5 +619,24 @@ impl fmt::Display for RayDict {
     }
 }
 
-/// Type alias for backward compatibility.
 pub type Dict = RayDict;
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// Replace the `ray_t*` inside a `RayObj` with `new_ptr`, releasing the
+/// previous pointer if the engine returned a freshly allocated COW
+/// successor.  Used by mutation paths that go through `ray_vec_*` /
+/// `ray_list_*` and adopt the returned pointer.
+unsafe fn replace_ray_obj(slot: &mut RayObj, new_ptr: *mut ray_t) {
+    let old = slot.as_ptr();
+    if !old.is_null() && old != new_ptr {
+        ray_release(old);
+    }
+    *slot = RayObj::from_raw(new_ptr);
+}
+
+// Silence unused warnings for items only referenced by tests.
+#[allow(dead_code)]
+fn _unused_cstr(_: &CStr) {}

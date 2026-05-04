@@ -40,7 +40,7 @@ fn test_runtime_creation() {
 fn test_runtime_version() {
     with_runtime!(rf, {
         let v = rf.version();
-        assert!(v > 0);
+        assert!(!v.is_empty());
     });
 }
 

@@ -1,5 +1,5 @@
 /*
-*   Copyright (c) 2025 Anton Kundenko <singaraiona@gmail.com>
+*   Copyright (c) 2025-2026 Anton Kundenko <singaraiona@gmail.com>
 *   All rights reserved.
 
 *   Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -65,21 +65,9 @@ pub enum RayforceError {
     #[error("Key not found: {0}")]
     KeyNotFound(String),
 
-    /// Invalid operation on parted table.
-    #[error("Cannot perform destructive operation on parted table: {0}")]
-    PartedTableError(String),
-
-    /// Connection error.
-    #[error("Connection error: {0}")]
-    ConnectionError(String),
-
     /// IO error.
     #[error("IO error: {0}")]
     IoError(String),
-
-    /// Query error.
-    #[error("Query error: {0}")]
-    QueryError(String),
 
     /// Conversion error.
     #[error("Conversion error: {0}")]
@@ -96,6 +84,27 @@ pub enum RayforceError {
     /// Generic C API error.
     #[error("C API error: {0}")]
     CApiError(String),
+
+    /// Error returned from the Rayforce engine. `code` is the
+    /// short tag from `ray_err_code` ("oom", "type", "range", ...);
+    /// `kind` is the matching `ray_err_t` enum value when known.
+    #[error("Rayforce error [{code}]: {message}")]
+    Ray {
+        code: String,
+        message: String,
+        kind: Option<crate::ray_err_t>,
+    },
+}
+
+impl From<crate::ray_err_t> for RayforceError {
+    fn from(err: crate::ray_err_t) -> Self {
+        let code = ray_err_t_code(err);
+        RayforceError::Ray {
+            code: code.to_string(),
+            message: code.to_string(),
+            kind: Some(err),
+        }
+    }
 }
 
 impl From<std::ffi::NulError> for RayforceError {
@@ -110,3 +119,28 @@ impl From<std::str::Utf8Error> for RayforceError {
     }
 }
 
+/// Map a `ray_err_t` to its short code string.
+///
+/// Mirrors `ray_err_code_str` from the C API but doesn't require a
+/// runtime call (and avoids hitting the C side from generic code paths).
+fn ray_err_t_code(err: crate::ray_err_t) -> &'static str {
+    match err {
+        crate::ray_err_t_RAY_OK => "ok",
+        crate::ray_err_t_RAY_ERR_OOM => "oom",
+        crate::ray_err_t_RAY_ERR_TYPE => "type",
+        crate::ray_err_t_RAY_ERR_RANGE => "range",
+        crate::ray_err_t_RAY_ERR_LENGTH => "length",
+        crate::ray_err_t_RAY_ERR_RANK => "rank",
+        crate::ray_err_t_RAY_ERR_DOMAIN => "domain",
+        crate::ray_err_t_RAY_ERR_NYI => "nyi",
+        crate::ray_err_t_RAY_ERR_IO => "io",
+        crate::ray_err_t_RAY_ERR_SCHEMA => "schema",
+        crate::ray_err_t_RAY_ERR_CORRUPT => "corrupt",
+        crate::ray_err_t_RAY_ERR_CANCEL => "cancel",
+        crate::ray_err_t_RAY_ERR_PARSE => "parse",
+        crate::ray_err_t_RAY_ERR_NAME => "name",
+        crate::ray_err_t_RAY_ERR_LIMIT => "limit",
+        crate::ray_err_t_RAY_ERR_RESERVED => "reserved",
+        _ => "unknown",
+    }
+}

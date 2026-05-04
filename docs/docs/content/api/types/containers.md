@@ -1,117 +1,122 @@
 # Container Types
 
-Container types hold multiple values. RayforceDB provides both homogeneous (vectors) and heterogeneous (lists) containers.
+Container types hold multiple values. RayforceDB provides homogeneous
+typed columns (`RayVector<T>`) and heterogeneous boxed lists
+(`RayList`), plus a string atom (`RayString`) and symbol-keyed
+dictionaries (`RayDict`).
 
-## RayVector<T>
+## RayVector&lt;T&gt;
 
-Homogeneous arrays where all elements have the same type. Vectors are the most efficient container for columnar operations.
+Homogeneous typed columns. Backed by a contiguous typed buffer
+(`ray_vec_new` / `ray_vec_from_raw`).
 
-### Creating Vectors
+### Creating vectors
 
 ```rust
 use rayforce::{RayVector, RaySymbol};
 
-// From iterator
-let prices: RayVector<i64> = RayVector::from_iter([100, 200, 300, 400]);
+// From iterator (bulk-copies into a fresh vector via ray_vec_from_raw)
+let prices: RayVector<i64> = RayVector::from_iter([100i64, 200, 300, 400]);
 let ratios: RayVector<f64> = RayVector::from_iter([1.5, 2.0, 3.5]);
 
-// From symbols
-let symbols: RayVector<RaySymbol> = RayVector::from_iter([
-    RaySymbol::new("AAPL"),
-    RaySymbol::new("GOOGL"),
-    RaySymbol::new("MSFT"),
-]);
+// Symbol vectors intern each name and store a 64-bit ID per element.
+let symbols = RayVector::<RaySymbol>::from_iter(["AAPL", "GOOGL", "MSFT"]);
 ```
 
-### Vector Operations
+### Vector operations
 
 ```rust
 use rayforce::RayVector;
 
-let v: RayVector<i64> = RayVector::from_iter([10, 20, 30]);
+let v: RayVector<i64> = RayVector::from_iter([10i64, 20, 30]);
 
-// Length
 println!("Length: {}", v.len());  // → 3
+assert!(!v.is_empty());
 
-// Check if empty
-if v.is_empty() {
-    println!("Vector is empty");
-}
+// Access elements
+assert_eq!(v.get(0), Some(10));
+assert_eq!(v.get(2), Some(30));
+assert_eq!(v.get(3), None);
 
-// Display
-println!("{}", v);  // → [10 20 30]
+// Read-only slice into the underlying buffer
+let slice: &[i64] = v.as_slice();
+println!("{slice:?}");
 ```
 
-### Supported Element Types
+### Mutation
 
-| Element Type | Description |
-|--------------|-------------|
-| `i64` | 64-bit integers |
-| `f64` | 64-bit floats |
-| `RaySymbol` | Interned symbols |
+`RayVector::<i64>::set(idx, value)` and `<f64>::set(idx, value)` walk
+the engine's COW path: `ray_vec_set` returns a (possibly new) owned
+vector pointer, and the wrapper adopts it (releasing the old reference
+when needed).
+
+```rust
+let mut v = RayVector::<i64>::from_iter([1i64, 2, 3]);
+v.set(1, 999);
+assert_eq!(v.as_slice(), &[1, 999, 3]);
+```
+
+### Supported element specialisations
+
+| Element | Backed by | Mutation |
+|---------|-----------|----------|
+| `i64` | `ray_vec_from_raw(RAY_I64, …)` | `set(idx, i64)` |
+| `f64` | `ray_vec_from_raw(RAY_F64, …)` | `set(idx, f64)` |
+| `RaySymbol` | `ray_sym_vec_new(RAY_SYM_W64, …)` + `ray_vec_append` | — (read-only) |
+
+`as_ray_obj() -> &RayObj` exposes the underlying `RayObj` for handing
+off to functions like `RayTable::from_dict` that take ownership of
+columns.
 
 ## RayList
 
-Heterogeneous lists that can hold any RayforceDB type. Lists are more flexible but less efficient than vectors.
+Heterogeneous boxed list — each slot is a `ray_t*`. Built on
+`ray_list_new` / `ray_list_append` / `ray_list_get`.
 
-### Creating Lists
+### Creating lists
 
 ```rust
-use rayforce::{RayList, RayObj};
+use rayforce::RayList;
 
-// Empty list
 let mut list = RayList::new();
+list.push(42i64);          // RayList::push takes anything that
+list.push("hello");        //   `Into<RayObj>` — primitives, &str,
+list.push(3.14f64);        //   slices, owned RayObj, etc.
 
-// Add elements
-list.push(RayObj::from(42_i64));
-list.push(RayObj::from("hello"));
-list.push(RayObj::from(3.14_f64));
+// Or build from an iterator:
+let list = RayList::from_iter([1i64, 2, 3]);
 ```
 
-### List Operations
+### List operations
 
 ```rust
-use rayforce::{RayList, RayObj};
-
 let mut list = RayList::new();
-list.push(RayObj::from(1_i64));
-list.push(RayObj::from(2_i64));
-list.push(RayObj::from(3_i64));
+list.push(1i64);
+list.push(2i64);
+list.push(3i64);
 
-// Length
-println!("Length: {}", list.len());  // → 3
+println!("Length: {}", list.len());      // → 3
 
-// Access by index
 if let Some(item) = list.get(0) {
     println!("First: {}", item);
 }
 
-// Set by index
-list.set(1, RayObj::from(100_i64));
-
-// Iterate
+// Iterate (each item is a freshly retained RayObj)
 for item in list.iter() {
     println!("{}", item);
 }
 ```
 
-### List from Iterator
-
-```rust
-use rayforce::{RayList, RayObj};
-
-let list = RayList::from_iter([
-    RayObj::from(1_i64),
-    RayObj::from("two"),
-    RayObj::from(3.0_f64),
-]);
-```
+!!! note "List mutation"
+    `RayList::push` adopts the COW return from `ray_list_append`; the
+    wrapper releases the previous list reference automatically. There
+    is no `RayList::set`/`pop` in the current bindings — file an issue
+    or extend the wrapper if you need them.
 
 ## RayString
 
-Character strings, implemented as a vector of characters.
-
-### Creating Strings
+A `RAY_STR` atom: SSO under 7 bytes (inline in the header), pool-backed
+for longer strings. New in 2.0 (1.0 used a `TYPE_C8` char vector).
 
 ```rust
 use rayforce::RayString;
@@ -119,163 +124,131 @@ use rayforce::RayString;
 // From &str
 let s = RayString::from("Hello, World!");
 
-// From String
+// From owned String
 let owned = String::from("Rust");
-let s = RayString::from(owned.as_str());
+let s = RayString::from(owned);
 ```
 
-### String Operations
+### String operations
 
 ```rust
-use rayforce::RayString;
+let s = RayString::new("Hello");
 
-let s = RayString::from("Hello");
-
-// Length (character count)
 println!("Length: {}", s.len());  // → 5
-
-// Convert to Rust String
 let rust_string: String = s.to_string();
-
-// Display
-println!("{}", s);  // → "Hello"
+println!("{}", s);                // → Hello
 ```
 
 ## RayDict
 
-Key-value dictionaries mapping symbols to values.
+Symbol-keyed dictionary (`RAY_DICT`). Built via `ray_dict_new(keys,
+vals)` (which **consumes** both inputs); lookups go through
+`ray_dict_get` (returns owned).
 
-### Creating Dictionaries
+### Creating dictionaries
+
+`from_pairs` interns each name as a symbol and assembles the dict for
+you:
 
 ```rust
-use rayforce::{RayDict, RaySymbol, RayObj};
+use rayforce::{RayDict, RayI64, RayString, RayType};
 
-// From pairs
 let dict = RayDict::from_pairs([
-    (RaySymbol::new("name"), RayObj::from("Alice")),
-    (RaySymbol::new("age"), RayObj::from(30_i64)),
-    (RaySymbol::new("active"), RayObj::from(true)),
-]);
+    ("name",   RayString::new("Alice").ptr().clone()),
+    ("age",    RayI64::new(30).ptr().clone()),
+    ("active", true.into()),
+])?;
 ```
 
-### Dictionary Operations
+### Dictionary operations
 
 ```rust
-use rayforce::{RayDict, RaySymbol, RayObj};
-
 let dict = RayDict::from_pairs([
-    (RaySymbol::new("a"), RayObj::from(1_i64)),
-    (RaySymbol::new("b"), RayObj::from(2_i64)),
-]);
+    ("a", RayI64::new(1).ptr().clone()),
+    ("b", RayI64::new(2).ptr().clone()),
+])?;
 
-// Length
-println!("Size: {}", dict.len());  // → 2
+println!("Size: {}", dict.len());      // → 2
+assert!(!dict.is_empty());
 
-// Check if empty
-if dict.is_empty() {
-    println!("Dict is empty");
-}
-
-// Get keys
-let keys = dict.keys();
-
-// Get values
+// Borrowed view into the keys / values columns:
+let keys   = dict.keys();
 let values = dict.values();
 
-// Clone
-let dict2 = dict.clone();
+let dict2 = dict.clone();              // bumps refcount via ray_retain
 ```
 
-### Accessing Values
+### Accessing values
 
 ```rust
-use rayforce::{RayDict, RaySymbol, RayObj};
-
 let dict = RayDict::from_pairs([
-    (RaySymbol::new("price"), RayObj::from(100_i64)),
-]);
+    ("price", RayI64::new(100).ptr().clone()),
+])?;
 
-// Get by key (returns Option)
-if let Some(value) = dict.get(&RaySymbol::new("price")) {
+// Lookup by string key — the binding interns the symbol for you and
+// calls ray_dict_get, which returns owned references.
+if let Some(value) = dict.get("price") {
     println!("Price: {}", value);
 }
 ```
 
-## Type Reference Table
+## Type reference
 
-| Type | Description | Homogeneous | Mutable |
-|------|-------------|-------------|---------|
-| `RayVector<T>` | Typed array | Yes | No |
-| `RayList` | Mixed list | No | Yes |
-| `RayString` | Character string | Yes | No |
-| `RayDict` | Key-value map | No | No |
+| Type | Tag | Element layout | Mutable |
+|------|-----|----------------|---------|
+| `RayVector<T>` | `RAY_I64` / `RAY_F64` / `RAY_SYM` | contiguous typed buffer | `set` for `<i64>`/`<f64>` |
+| `RayList` | `RAY_LIST` (0) | `ray_t*` per slot | `push` |
+| `RayString` | `-RAY_STR` (atom) | SSO + pool | — |
+| `RayDict` | `RAY_DICT` | `[keys, vals]` pair | — (immutable wrapper) |
 
-## Performance Considerations
+## Performance notes
 
-### Vectors vs Lists
+### Vectors vs lists
 
-**Use Vectors when:**
-- All elements have the same type
-- Performing columnar operations
-- Memory efficiency is important
-- Operating on large datasets
+**Use a typed `RayVector<T>` when:**
+- All elements share the same type.
+- You need columnar ops (the engine's analytics pipelines operate on
+  these).
+- Memory density and SIMD-friendliness matter.
 
-**Use Lists when:**
-- Elements have different types
-- Building heterogeneous records
-- Flexibility is more important than performance
-
-### Memory Layout
+**Use `RayList` when:**
+- Elements have different types.
+- You're building a record or a heterogeneous tuple.
 
 ```
-Vector<i64>:  [i64, i64, i64, i64]  ← Contiguous memory
-List:         [ptr, ptr, ptr, ptr]  ← Pointers to objects
+RayVector<i64>:  [ i64 | i64 | i64 | i64 ]   ← contiguous
+RayList:         [ ptr | ptr | ptr | ptr ]   ← pointers
 ```
 
-Vectors store values contiguously, enabling SIMD operations and better cache performance.
+## Common patterns
 
-## Common Patterns
-
-### Building Data Structures
+### Records as dicts
 
 ```rust
-use rayforce::{RayList, RayVector, RayObj, RaySymbol};
+use rayforce::{RayDict, RayI64, RayType};
 
-// Table-like structure as list of vectors
-let columns = RayList::from_iter([
-    RayObj::from(RayVector::<i64>::from_iter([1, 2, 3]).ptr()),
-    RayObj::from(RayVector::<f64>::from_iter([1.1, 2.2, 3.3]).ptr()),
-]);
-
-// Record as dict
 let record = RayDict::from_pairs([
-    (RaySymbol::new("id"), RayObj::from(1_i64)),
-    (RaySymbol::new("name"), RayObj::from("Alice")),
-    (RaySymbol::new("score"), RayObj::from(95.5_f64)),
-]);
+    ("id",    RayI64::new(1).ptr().clone()),
+    ("name",  rayforce::RayString::new("Alice").ptr().clone()),
+    ("score", rayforce::RayF64::new(95.5).ptr().clone()),
+])?;
 ```
 
-### Nested Structures
+### Tables as `RayList<RayVector<T>>`
 
 ```rust
-use rayforce::{RayList, RayObj};
+use rayforce::{RayList, RayVector, RayType};
 
-// List of lists
-let matrix = RayList::from_iter([
-    RayObj::from(RayList::from_iter([
-        RayObj::from(1_i64),
-        RayObj::from(2_i64),
-    ]).ptr()),
-    RayObj::from(RayList::from_iter([
-        RayObj::from(3_i64),
-        RayObj::from(4_i64),
-    ]).ptr()),
-]);
+let mut columns = RayList::new();
+columns.push(RayVector::<i64>::from_iter([1i64, 2, 3]).as_ray_obj().clone());
+columns.push(RayVector::<f64>::from_iter([1.1, 2.2, 3.3]).as_ray_obj().clone());
 ```
 
-## Next Steps
+(For an actual table use `RayTable::from_dict` — see
+[Tables](table.md).)
 
-- **[Table](table.md)** - Working with tables
-- **[Scalars](scalars.md)** - Scalar type reference
-- **[Queries](../queries/select.md)** - Query operations
+## Next steps
 
+- **[Table](table.md)** — `RayTable` reference.
+- **[Scalars](scalars.md)** — scalar type reference.
+- **[FFI](../ffi.md)** — low-level helpers (raw pointers, retain/release).

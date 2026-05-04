@@ -1,182 +1,195 @@
 # API Overview
 
-This section provides comprehensive documentation for the rayforce-rs API.
+Reference for the rayforce-rs API as it stands against rayforce 2.0.
 
-## Module Structure
+## Module structure
 
 ```
 rayforce
-├── ffi           # Low-level FFI bindings
+├── ffi           # Low-level FFI: RayObj, accessor helpers, raw bindings
 ├── types         # Type system
-│   ├── scalars   # Scalar types (RayI64, RayF64, etc.)
-│   ├── containers# Container types (RayVector, RayList, etc.)
-│   └── table     # Table and query types
-├── ipc           # IPC/networking
-└── error         # Error types
+│   ├── scalars   # Scalar atom wrappers (RayI64, RayF64, RaySymbol, ...)
+│   ├── containers# RayVector, RayList, RayString, RayDict
+│   └── table     # RayTable
+└── error         # RayforceError + ray_err_t mapping
 ```
 
-## Core Types
+## Core types
 
 ### Runtime
 
 | Type | Description |
 |------|-------------|
-| `Rayforce` | Main runtime handle for RayforceDB |
-| `RayObj` | Generic object wrapper for any RayforceDB value |
+| `Rayforce` | Main runtime handle. Wraps `*mut ray_runtime_t`. |
+| `RayforceBuilder` | Builder for constructing a `Rayforce` with custom argv. |
+| `RayObj` | Owned `*mut ray_t` with refcount-managed lifetime. |
 
-### Scalar Types
+### Scalar atom types
 
-| Type | Description | Rust Equivalent |
+| Type | Description | Rust equivalent |
 |------|-------------|-----------------|
-| `RayI16` | 16-bit signed integer | `i16` |
-| `RayI32` | 32-bit signed integer | `i32` |
-| `RayI64` | 64-bit signed integer | `i64` |
-| `RayF64` | 64-bit floating point | `f64` |
-| `RayU8` | Unsigned byte | `u8` |
-| `RayB8` | Boolean | `bool` |
-| `RayC8` | Character | `char` |
-| `RaySymbol` | Interned string symbol | - |
-| `RayDate` | Date value | `chrono::NaiveDate` |
-| `RayTime` | Time value | `chrono::NaiveTime` |
-| `RayTimestamp` | Timestamp | `chrono::NaiveDateTime` |
-| `RayGuid` | UUID/GUID | `uuid::Uuid` |
+| `RayBool` (`B8`) | Boolean atom | `bool` |
+| `RayU8` (`U8`) | Unsigned byte | `u8` |
+| `RayI16` (`I16`) | 16-bit signed integer | `i16` |
+| `RayI32` (`I32`) | 32-bit signed integer | `i32` |
+| `RayI64` (`I64`) | 64-bit signed integer | `i64` |
+| `RayF64` (`F64`) | 64-bit floating point | `f64` |
+| `RayString` | SSO string atom (≤7 bytes inline, pool-backed otherwise) | `String` |
+| `RaySymbol` (`Symbol`) | Interned string symbol | — |
+| `RayDate` (`Date`) | Date value | `chrono::NaiveDate` |
+| `RayTime` (`Time`) | Time value | `chrono::NaiveTime` |
+| `RayTimestamp` (`Timestamp`) | Timestamp | `chrono::NaiveDateTime` |
+| `RayGuid` (`GUID`) | 16-byte GUID | `uuid::Uuid` |
 
-### Container Types
+!!! note "RayChar (`C8`) was removed"
+    The single-character atom type doesn't exist in rayforce 2.0. Use
+    `RayU8::new(b'a')` or `RayString::new("a")`.
 
-| Type | Description |
-|------|-------------|
-| `RayVector<T>` | Homogeneous array of values |
-| `RayList` | Heterogeneous list |
-| `RayString` | Character string |
-| `RayDict` | Key-value dictionary |
-| `RayTable` | Columnar table |
-
-### Query Types
+### Container types
 
 | Type | Description |
 |------|-------------|
-| `RaySelectQuery` | SELECT query builder |
-| `RayUpdateQuery` | UPDATE query builder |
-| `RayInsertQuery` | INSERT query builder |
-| `RayUpsertQuery` | UPSERT query builder |
-| `RayColumn` | Table column reference |
-| `RayExpression` | Query expression |
+| `RayVector<T>` | Homogeneous typed column. Specialised for `i64`, `f64`, `RaySymbol`. |
+| `RayList` | Heterogeneous boxed list (`RAY_LIST`). |
+| `RayDict` | Symbol-keyed dictionary (`RAY_DICT`). |
+| `RayTable` | Columnar table (`RAY_TABLE`). |
 
-## Key Traits
+### Query types — removed
 
-### RayType
+The 1.0 query-builder types (`RaySelectQuery`, `RayUpdateQuery`,
+`RayInsertQuery`, `RayUpsertQuery`, `RayColumn`, `RayExpression`) are
+**not in this release**. The C symbols backing them are no longer in
+the rayforce 2.0 public API. Run queries by composing Rayfall source
+strings and calling `Rayforce::eval`. See the
+[Quick Start](../get-started/quickstart.md#querying-tables) for the
+recommended workflow.
 
-All RayforceDB types implement the `RayType` trait:
+## Key traits
+
+### `RayType`
+
+Every typed wrapper implements `RayType`:
 
 ```rust
-pub trait RayType {
+pub trait RayType: Sized {
+    /// 2.0 type tag (negative for atoms, non-negative for vectors / compounds).
     const TYPE_CODE: i8;
+    /// Human-readable name for error messages.
     const RAY_NAME: &'static str;
-    
-    fn ptr(&self) -> *mut obj_t;
-    fn from_ptr(ptr: *mut obj_t) -> Self;
+
+    fn from_ptr(ptr: RayObj) -> Result<Self>;
+    fn ptr(&self) -> &RayObj;
+    fn type_code(&self) -> i8 { self.ptr().type_code() }
 }
 ```
 
-### From/Into Conversions
+### `From` / `TryFrom` conversions
 
-RayforceDB types support conversions from Rust primitives:
+`RayObj` implements `From<T>` for the Rust primitive atom types:
 
 ```rust
-// From Rust primitives
-let obj = RayObj::from(42_i64);
-let obj = RayObj::from(3.14_f64);
-let obj = RayObj::from("hello");
-
-// Into Rust primitives
-let value: i64 = obj.into();
+let obj = RayObj::from(42i64);
+let obj = RayObj::from(3.14f64);
+let obj = RayObj::from(true);
+let obj = RayObj::from("hello");          // → RAY_STR atom
+let obj = RayObj::from([1i64, 2, 3].as_slice());   // → RAY_I64 vector
 ```
 
-## Error Handling
-
-All fallible operations return `Result<T, RayError>`:
+And `TryFrom<RayObj>` going the other direction:
 
 ```rust
-use rayforce::{Rayforce, RayError};
+let n: i64    = obj.try_into()?;
+let x: f64    = obj.try_into()?;
+let b: bool   = obj.try_into()?;
+let s: String = obj.try_into()?;
+```
 
-fn main() -> Result<(), RayError> {
-    let ray = Rayforce::new()?;
-    let result = ray.eval("(+ 1 2)")?;
+## Error handling
+
+All fallible operations return `Result<T, RayforceError>`:
+
+```rust
+use rayforce::{Rayforce, RayforceError, Result};
+
+fn main() -> Result<()> {
+    let rf = Rayforce::new()?;
+    let _result = rf.eval("sum 1 2 3")?;
     Ok(())
 }
 ```
 
-### Error Types
+### Error variants
 
-| Type | Description |
-|------|-------------|
-| `RayforceError` | Runtime initialization errors |
-| `RayObjError` | Object creation/manipulation errors |
-| `ConversionError` | Type conversion failures |
-| `TypeError` | Type mismatch errors |
-| `IndexError` | Out-of-bounds access |
-| `KeyError` | Missing dictionary key |
-| `RuntimeError` | General runtime errors |
+| Variant | When |
+|---------|------|
+| `RuntimeCreationFailed` | `ray_runtime_create` returned NULL. |
+| `EvalFailed(String)` | Generic eval failure. |
+| `TypeMismatch { expected, actual }` | A typed `from_ptr` saw the wrong tag. |
+| `IndexOutOfBounds { index, length }` | Out-of-range vector / table access. |
+| `NullPointer` | Hit a NULL where a value was expected. |
+| `InvalidString` | Embedded NUL byte / non-UTF-8 in input. |
+| `KeyNotFound(String)` | Missing dict / table column. |
+| `IoError(String)` | Filesystem / network I/O. |
+| `ConversionError(String)` | Conversion failure. |
+| `AllocationFailed` | `ray_alloc` / construction returned NULL. |
+| `InvalidGuid(String)` | GUID parse failure. |
+| `CApiError(String)` | Generic C-side failure. |
+| `Ray { code, message, kind }` | Engine error from `ray_eval_str`. `kind` is the matching `ray_err_t`. |
 
-## Quick Reference
+## Quick reference
 
-### Creating Values
+### Creating values
 
 ```rust
 use rayforce::*;
 
 // Scalars
-let i = RayI64::from_value(42);
-let f = RayF64::from_value(3.14);
+let i = RayI64::new(42);
+let f = RayF64::new(3.14);
 let s = RaySymbol::new("name");
+let str_ = RayString::new("hello");
 
 // Vectors
-let v: RayVector<i64> = RayVector::from_iter([1, 2, 3]);
+let v: RayVector<i64> = RayVector::from_iter([1i64, 2, 3]);
+let s = RayVector::<RaySymbol>::from_iter(["a", "b", "c"]);
 
 // Lists
 let mut l = RayList::new();
-l.push(RayObj::from(42_i64));
+l.push(42i64);
+l.push("hello");
 
-// Dictionaries
+// Dictionaries (string keys are interned to symbols)
 let d = RayDict::from_pairs([
-    (RaySymbol::new("key"), RayObj::from("value")),
-]);
+    ("key", RayString::new("value").ptr().clone()),
+])?;
 ```
 
-### Evaluating Expressions
+### Evaluating expressions
 
 ```rust
-let ray = Rayforce::new()?;
-
-// Evaluate string expressions
-let result = ray.eval("(+ 1 2 3)")?;
-
-// Evaluate with objects
-let obj = RayObj::from(42_i64);
-let result = ray.eval_obj("(+ x 10)", &obj)?;
+let rf = Rayforce::new()?;
+let result = rf.eval("sum 1 2 3")?;        // returns RayObj wrapping 6
+let n: i64 = result.try_into()?;
 ```
 
-### Querying Tables
+`Rayforce::eval` takes Rayfall source as `&str` and returns a `RayObj`.
+On engine errors it returns `RayforceError::Ray { code, message, kind }`
+where `code` is the short tag (`"oom"`, `"type"`, `"range"`, …) from
+`ray_err_code`.
+
+### Querying tables
 
 ```rust
-// Create table
-let table = ray.eval("(table [a b] (list [1 2] [3 4]))")?;
+let table = rf.eval("(table [a b] (list [1 2] [3 4]))")?;
 
-// Select query
-let result = ray.eval(r#"
-    (select {
-        a: a
-        from: table
-        where: (> b 2)})
-"#)?;
+// Bind under a name and run a select via eval:
+rf.eval("(set t (table [a b] (list [1 2] [3 4])))")?;
+let result = rf.eval("(select {from:t a:a where:(> b 2)})")?;
 ```
 
-## Next Steps
+## Next steps
 
-- **[Scalars](types/scalars.md)** - Detailed scalar type documentation
-- **[Containers](types/containers.md)** - Container types guide
-- **[Tables](types/table.md)** - Working with tables
-- **[Queries](queries/select.md)** - Query operations
-- **[FFI](ffi.md)** - Low-level FFI details
-- **[IPC](ipc.md)** - Inter-process communication
-
+- **[Scalars](types/scalars.md)** — detailed scalar type docs.
+- **[Containers](types/containers.md)** — `RayVector` / `RayList` / `RayDict` / `RayString`.
+- **[Tables](types/table.md)** — `RayTable` reference.
+- **[FFI](ffi.md)** — low-level details (`RayObj`, accessor helpers, raw bindings).

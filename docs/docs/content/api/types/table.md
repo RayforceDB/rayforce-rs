@@ -1,280 +1,173 @@
 # Table Type
 
-Tables are the primary data structure in RayforceDB for analytical workloads. A table is a dictionary mapping column names to vectors.
+`RayTable` wraps a `RAY_TABLE` value — the engine's columnar data
+structure for analytical workloads.
 
-## Creating Tables
+In rayforce 2.0 the **Rust query builder is gone** (the C symbols
+backing `Table::select()` / `update()` / `insert()` / `upsert()` are
+no longer in the public 2.0 API). Build queries by composing Rayfall
+source and calling [`Rayforce::eval`](../overview.md#evaluating-expressions)
+— see [Querying tables](#querying-tables) below.
 
-### Via Evaluation
+## Building tables
 
-The most flexible way to create tables:
+### From a dict of `(name, column)` pairs
+
+The most direct path from Rust data to a table:
+
+```rust
+use rayforce::{RayTable, RayVector, RaySymbol, RayType};
+
+let employees = RayTable::from_dict([
+    ("name",   RayVector::<RaySymbol>::from_iter(["Alice", "Bob", "Charlie"]).as_ray_obj().clone()),
+    ("age",    RayVector::<i64>::from_iter([25i64, 30, 35]).as_ray_obj().clone()),
+    ("salary", RayVector::<i64>::from_iter([50000i64, 60000, 70000]).as_ray_obj().clone()),
+])?;
+
+println!("{}", employees);
+```
+
+`from_dict` is implemented in terms of `ray_table_new(ncols)` followed
+by one `ray_table_add_col(tbl, sym_id, col)` per column. Each column
+ray-object is consumed by the table.
+
+### Via `Rayforce::eval`
 
 ```rust
 use rayforce::Rayforce;
 
-let ray = Rayforce::new()?;
+let rf = Rayforce::new()?;
 
-let table = ray.eval(r#"
+let table = rf.eval(r#"
     (table [name age salary]
-        (list
-            (list "Alice" "Bob" "Charlie")
-            [25 30 35]
-            [50000 60000 70000]))
+        (list [`Alice `Bob `Charlie]
+              [25 30 35]
+              [50000 60000 70000]))
 "#)?;
-
 println!("{}", table);
 ```
 
-### Table Structure
+### Resolving an existing table by name
 
-A table consists of:
-- **Column names**: Symbols identifying each column
-- **Column data**: Vectors of uniform type
-- **Key columns**: Optional columns for indexing (keyed tables)
-
-```
-Table: employees
-┌─────────┬─────┬────────┐
-│ name    │ age │ salary │
-├─────────┼─────┼────────┤
-│ "Alice" │ 25  │ 50000  │
-│ "Bob"   │ 30  │ 60000  │
-│ "Charlie"│ 35  │ 70000  │
-└─────────┴─────┴────────┘
-```
-
-## Table Operations
-
-### Accessing Dimensions
+`from_name` looks up a global binding interactively (it's backed by
+`ray_sym_intern` + `ray_env_get` + `ray_retain`):
 
 ```rust
-use rayforce::Rayforce;
+let employees = RayTable::from_name("employees")?;
+```
 
-let ray = Rayforce::new()?;
+If the binding doesn't exist or doesn't refer to a table you'll get
+`KeyNotFound` or `TypeMismatch`.
 
-let table = ray.eval(r#"
-    (table [a b c] (list [1 2] [3 4] [5 6]))
+## Table operations
+
+### Schema introspection
+
+```rust
+let cols: Vec<String> = employees.columns()?;   // ordered column names
+let n: usize          = employees.ncols();
+let r: usize          = employees.len()?;       // row count
+println!("{cols:?}  ({n} cols × {r} rows)");
+```
+
+### Accessing columns
+
+```rust
+// By name (interns the name and calls ray_table_get_col)
+let salaries = employees.get_column("salary")?;
+
+// By ordinal index (ray_table_get_col_idx)
+let first_col = employees.get_column_idx(0)?;
+```
+
+Both return a freshly retained `RayObj`; the typed `RayVector<T>`
+wrapper can be obtained via `RayVector::<i64>::from_ptr(salaries)?` if
+you need slice access.
+
+### Binding under a name
+
+```rust
+employees.save("employees")?;        // ray_env_set + ray_sym_intern
+let again = RayTable::from_name("employees")?;
+```
+
+`save` makes the table reachable from Rayfall (`(select … from:
+employees …)`).
+
+## Querying tables
+
+The high-level builder API was removed in this release. Compose
+queries as Rayfall source and run them through `Rayforce::eval`:
+
+```rust
+use rayforce::{Rayforce, RayTable, RayVector, RaySymbol, RayType};
+
+let rf = Rayforce::new()?;
+
+let trades = RayTable::from_dict([
+    ("sym",   RayVector::<RaySymbol>::from_iter(["AAPL","MSFT","AAPL","GOOGL"]).as_ray_obj().clone()),
+    ("price", RayVector::<f64>::from_iter([150.0, 300.0, 151.0, 2800.0]).as_ray_obj().clone()),
+    ("qty",   RayVector::<i64>::from_iter([100i64, 50, 200, 25]).as_ray_obj().clone()),
+])?;
+trades.save("trades")?;
+
+// SELECT with WHERE
+let result = rf.eval(r#"
+    (select {from:trades sym:sym total:(* price qty) where:(> qty 50)})
 "#)?;
 
-// Number of rows
-let rows = ray.eval("(count a)")?;
-
-// Number of columns  
-let cols = ray.eval("(count (cols table))")?;
-```
-
-### Accessing Columns
-
-```rust
-// Get column by name
-let salaries = ray.eval("(. employees 'salary)")?;
-
-// Get multiple columns
-let subset = ray.eval("(. employees 'name 'salary)")?;
-```
-
-### Accessing Rows
-
-```rust
-// Get first row
-let first = ray.eval("(first employees)")?;
-
-// Get last row
-let last = ray.eval("(last employees)")?;
-
-// Get row by index
-let row = ray.eval("(employees 1)")?;
-
-// Get range of rows
-let rows = ray.eval("(take 5 employees)")?;
-```
-
-## Column Reference
-
-The `RayColumn` type references table columns in queries.
-
-```rust
-use rayforce::RayColumn;
-
-let col = RayColumn::new("salary");
-let col2 = RayColumn::new("department");
-```
-
-## Expression Building
-
-The `RayExpression` type builds query expressions.
-
-```rust
-use rayforce::RayExpression;
-
-// Simple column reference
-let expr = RayExpression::column("salary");
-
-// Arithmetic expression
-let expr = RayExpression::from("(* salary 1.1)");
-
-// Aggregation
-let expr = RayExpression::from("(avg salary)");
-```
-
-## Keyed Tables
-
-Keyed tables have one or more key columns for efficient lookups.
-
-```rust
-let ray = Rayforce::new()?;
-
-// Create keyed table (first column is key)
-let keyed = ray.eval(r#"
-    (key (table [id name salary]
-        (list [1 2 3]
-              (list "Alice" "Bob" "Charlie")
-              [50000 60000 70000])) 1)
+// GROUP BY with aggregation
+let summary = rf.eval(r#"
+    (select {from:trades by: sym total_qty:(sum qty) avg_price:(avg price)})
 "#)?;
 
-// Lookup by key
-let row = ray.eval("(keyed 2)")?;  // Get row where id=2
+println!("{result}\n{summary}");
 ```
 
-## Table I/O
+### Updates / inserts / joins
 
-### Saving Tables
+All flow through Rayfall too:
 
 ```rust
-// Save to binary format
-ray.eval("(save 'data/employees.ray employees)")?;
+// UPDATE
+rf.eval("(update {from:trades qty:(* qty 2) where:(= sym `AAPL)})")?;
 
-// Save to CSV (if supported)
-ray.eval("(save 'data/employees.csv employees)")?;
+// INSERT (Rayfall side; consult the rayforce engine docs for syntax)
+rf.eval("(insert trades (list `META 500.0 75))")?;
+
+// LEFT JOIN
+let joined = rf.eval("(left-join [`sym] trades reference)")?;
 ```
 
-### Loading Tables
+## Type reference
 
-```rust
-// Load from file
-let loaded = ray.eval("(load 'data/employees.ray)")?;
+| Item | Description |
+|------|-------------|
+| `RayTable` | `RAY_TABLE` (98). `Clone` via `ray_retain`. |
+| `RayTable::from_dict` | Build from `(name, column)` iterator. |
+| `RayTable::from_name` | Resolve a global binding via `ray_env_get`. |
+| `RayTable::from_ptr` | Wrap an existing `RayObj` (validates the type tag). |
+| `columns()` | `Vec<String>` of column names. |
+| `len()` | Row count (`ray_table_nrows`). |
+| `ncols()` | Column count (`ray_table_ncols`). |
+| `get_column(name)` | Owned `RayObj` for the column. |
+| `get_column_idx(idx)` | Owned `RayObj` for the n-th column. |
+| `save(name)` | Bind under `name` in the global environment. |
+| `as_ray_obj()` | Borrow the underlying `RayObj`. |
+
+## Display
+
+`RayTable` currently renders schema-only:
+
+```text
+Table[3 rows × 3 cols] ["name", "age", "salary"]
 ```
 
-## Table Manipulation
+A richer pretty-printer is on the roadmap once rayforce 2.0 re-exposes
+a stable formatter (the 1.0 `obj_fmt` is now a Rayfall-only builtin).
 
-### Adding Rows
+## Next steps
 
-```rust
-// Insert single row
-ray.eval(r#"
-    (insert employees (list "David" 28 55000))
-"#)?;
-
-// Insert multiple rows
-ray.eval(r#"
-    (insert employees (list
-        (list "Eve" "Frank")
-        [32 29]
-        [62000 58000]))
-"#)?;
-```
-
-### Updating Rows
-
-```rust
-// Update with condition
-ray.eval(r#"
-    (update {
-        salary: (* salary 1.1)
-        from: employees
-        where: (> age 30)})
-"#)?;
-```
-
-### Joining Tables
-
-```rust
-let result = ray.eval(r#"
-    (left-join [dept_id] employees departments)
-"#)?;
-```
-
-## Query Integration
-
-Tables integrate with the query system:
-
-```rust
-use rayforce::Rayforce;
-
-let ray = Rayforce::new()?;
-
-// Create table
-ray.eval(r#"
-    (set trades (table [sym price qty time]
-        (list
-            ['AAPL 'MSFT 'AAPL 'GOOGL]
-            [150.0 300.0 151.0 2800.0]
-            [100 50 200 25]
-            [09:30:00 09:31:00 09:32:00 09:33:00])))
-"#)?;
-
-// Select query
-let result = ray.eval(r#"
-    (select {
-        sym: sym
-        total: (* price qty)
-        from: trades
-        where: (> qty 50)})
-"#)?;
-
-// Aggregation
-let summary = ray.eval(r#"
-    (select {
-        total_qty: (sum qty)
-        avg_price: (avg price)
-        from: trades
-        by: sym})
-"#)?;
-```
-
-## Performance Tips
-
-### Column Order
-
-Place frequently accessed columns first:
-
-```rust
-// Good: commonly queried columns first
-let table = ray.eval(r#"
-    (table [price qty sym metadata]
-        (list prices quantities symbols metadata))
-"#)?;
-```
-
-### Data Types
-
-Use appropriate types for columns:
-
-| Data | Recommended Type |
-|------|------------------|
-| IDs | `RayI64` |
-| Prices | `RayF64` |
-| Quantities | `RayI64` |
-| Categories | `RaySymbol` |
-| Text | `RayString` |
-| Dates | `RayDate` |
-| Timestamps | `RayTimestamp` |
-
-### Indexing
-
-Create keyed tables for frequent lookups:
-
-```rust
-// Keyed by first column
-let keyed = ray.eval("(key table 1)")?;
-
-// Keyed by multiple columns  
-let keyed = ray.eval("(key table 2)")?;  // First 2 columns as key
-```
-
-## Next Steps
-
-- **[Select Query](../queries/select.md)** - Querying tables
-- **[Update Query](../queries/update.md)** - Modifying data
-- **[Insert Query](../queries/insert.md)** - Adding data
-- **[Joins](../queries/joins.md)** - Combining tables
-
+- **[Containers](containers.md)** — `RayVector` / `RayList` / `RayDict`.
+- **[Scalars](scalars.md)** — atom types.
+- **[FFI](../ffi.md)** — low-level helpers (`RayObj`, raw bindings).

@@ -1,5 +1,5 @@
 /*
-*   Copyright (c) 2025 Anton Kundenko <singaraiona@gmail.com>
+*   Copyright (c) 2025-2026 Anton Kundenko <singaraiona@gmail.com>
 *   All rights reserved.
 
 *   Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -32,17 +32,14 @@ fn main() {
     let rayforce_github =
         env::var("RAYFORCE_GITHUB").unwrap_or_else(|_| "https://github.com/RayforceDB/rayforce.git".to_string());
 
-    // Check if rayforce is already built
     let lib_path = rayforce_dir.join("librayforce.a");
     let needs_build = !lib_path.exists();
 
     if needs_build {
-        // Clean previous build artifacts
         if rayforce_dir.exists() {
             std::fs::remove_dir_all(&rayforce_dir).ok();
         }
 
-        // Clone rayforce repository
         println!("cargo:warning=Cloning rayforce from {}", rayforce_github);
         let status = Command::new("git")
             .args(["clone", &rayforce_github, rayforce_dir.to_str().unwrap()])
@@ -53,7 +50,6 @@ fn main() {
             panic!("Failed to clone rayforce repository");
         }
 
-        // Build rayforce static library
         println!("cargo:warning=Building rayforce static library...");
         let status = Command::new("make")
             .current_dir(&rayforce_dir)
@@ -66,11 +62,9 @@ fn main() {
         }
     }
 
-    // Tell cargo to link against the static library
     println!("cargo:rustc-link-search=native={}", rayforce_dir.display());
     println!("cargo:rustc-link-lib=static=rayforce");
 
-    // Link against system libraries
     #[cfg(target_os = "linux")]
     {
         println!("cargo:rustc-link-lib=dylib=m");
@@ -85,181 +79,152 @@ fn main() {
         println!("cargo:rustc-link-lib=dylib=pthread");
     }
 
-    // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-env-changed=RAYFORCE_GITHUB");
 
-    // Generate wrapper.h that includes all necessary headers
+    let include_dir = rayforce_dir.join("include");
+    let public_header = include_dir.join("rayforce.h");
+
     let wrapper_path = manifest_dir.join("wrapper.h");
     let wrapper_content = format!(
         r#"/*
  * Rayforce Rust bindings wrapper header
- * Auto-generated - includes all necessary rayforce headers
+ * Auto-generated - includes the single rayforce 2.0 public header.
  */
 
-#include "{rayforce_dir}/core/rayforce.h"
-#include "{rayforce_dir}/core/def.h"
-#include "{rayforce_dir}/core/runtime.h"
-#include "{rayforce_dir}/core/string.h"
-#include "{rayforce_dir}/core/eval.h"
-#include "{rayforce_dir}/core/env.h"
-#include "{rayforce_dir}/core/format.h"
-#include "{rayforce_dir}/core/query.h"
-#include "{rayforce_dir}/core/io.h"
-#include "{rayforce_dir}/core/binary.h"
-#include "{rayforce_dir}/core/guid.h"
-#include "{rayforce_dir}/core/date.h"
-#include "{rayforce_dir}/core/time.h"
-#include "{rayforce_dir}/core/timestamp.h"
-#include "{rayforce_dir}/core/error.h"
-#include "{rayforce_dir}/core/items.h"
-#include "{rayforce_dir}/core/update.h"
-#include "{rayforce_dir}/core/compose.h"
+#include "{header}"
 "#,
-        rayforce_dir = rayforce_dir.display()
+        header = public_header.display()
     );
     std::fs::write(&wrapper_path, wrapper_content).expect("Failed to write wrapper.h");
 
-    // Generate bindings
     let bindings = bindgen::Builder::default()
         .header(wrapper_path.to_str().unwrap())
-        .clang_arg(format!("-I{}", rayforce_dir.join("core").display()))
+        .clang_arg(format!("-I{}", include_dir.display()))
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        .allowlist_type("obj_t")
-        .allowlist_type("runtime_t")
-        .allowlist_type("ray_error_t")
-        .allowlist_type("guid_t")
-        // Type constants
-        .allowlist_var("TYPE_.*")
-        .allowlist_var("ERR_.*")
-        .allowlist_var("OK")
-        .allowlist_var("NULL_.*")
-        .allowlist_var("INF_.*")
-        .allowlist_var("B8_.*")
-        // Constructors
-        .allowlist_function("version")
-        .allowlist_function("null")
-        .allowlist_function("nullv")
-        .allowlist_function("atom")
-        .allowlist_function("vector")
-        .allowlist_function("b8")
-        .allowlist_function("c8")
-        .allowlist_function("symbol")
-        .allowlist_function("symboli64")
-        .allowlist_function("adate")
-        .allowlist_function("atime")
-        .allowlist_function("timestamp")
-        .allowlist_function("guid")
-        .allowlist_function("guid_from_str")
-        .allowlist_function("guid_to_str")
-        .allowlist_function("enumerate")
-        .allowlist_function("anymap")
-        .allowlist_function("table")
-        .allowlist_function("dict")
-        .allowlist_function("ray_table")
-        .allowlist_function("ray_dict")
-        // Memory management
-        .allowlist_function("clone_obj")
-        .allowlist_function("copy_obj")
-        .allowlist_function("cow_obj")
-        .allowlist_function("rc_obj")
-        .allowlist_function("drop_obj")
-        .allowlist_function("drop_raw")
+        // Core types
+        .allowlist_type("ray_t")
+        .allowlist_type("ray_err_t")
+        .allowlist_type("ray_runtime_s")
+        .allowlist_type("ray_runtime_t")
+        .allowlist_type("ray_progress_t")
+        .allowlist_type("ray_progress_cb")
+        // Type tag constants and attribute flags
+        .allowlist_var("RAY_.*")
+        // Versioning
+        .allowlist_function("ray_version_major")
+        .allowlist_function("ray_version_minor")
+        .allowlist_function("ray_version_patch")
+        .allowlist_function("ray_version_string")
+        // Memory / allocator
+        .allowlist_function("ray_alloc")
+        .allowlist_function("ray_free")
+        .allowlist_function("ray_mem_budget")
+        .allowlist_function("ray_mem_pressure")
+        // Interrupt + Progress
+        .allowlist_function("ray_request_interrupt")
+        .allowlist_function("ray_clear_interrupt")
+        .allowlist_function("ray_interrupted")
+        .allowlist_function("ray_progress_set_callback")
+        .allowlist_function("ray_progress_update")
+        .allowlist_function("ray_progress_label")
+        .allowlist_function("ray_progress_end")
+        // COW / refcount
+        .allowlist_function("ray_retain")
+        .allowlist_function("ray_release")
+        // Atom constructors
+        .allowlist_function("ray_bool")
+        .allowlist_function("ray_u8")
+        .allowlist_function("ray_i16")
+        .allowlist_function("ray_i32")
+        .allowlist_function("ray_i64")
+        .allowlist_function("ray_f32")
+        .allowlist_function("ray_f64")
+        .allowlist_function("ray_str")
+        .allowlist_function("ray_sym")
+        .allowlist_function("ray_date")
+        .allowlist_function("ray_time")
+        .allowlist_function("ray_timestamp")
+        .allowlist_function("ray_guid")
+        .allowlist_function("ray_typed_null")
+        // Vector API
+        .allowlist_function("ray_vec_new")
+        .allowlist_function("ray_sym_vec_new")
+        .allowlist_function("ray_vec_append")
+        .allowlist_function("ray_vec_set")
+        .allowlist_function("ray_vec_get")
+        .allowlist_function("ray_vec_slice")
+        .allowlist_function("ray_vec_concat")
+        .allowlist_function("ray_vec_from_raw")
+        .allowlist_function("ray_vec_insert_at")
+        .allowlist_function("ray_vec_insert_vec_at")
+        .allowlist_function("ray_vec_insert_many")
+        .allowlist_function("ray_vec_set_null")
+        .allowlist_function("ray_vec_set_null_checked")
+        .allowlist_function("ray_vec_is_null")
+        // String vector / string atom
+        .allowlist_function("ray_str_vec_append")
+        .allowlist_function("ray_str_vec_get")
+        .allowlist_function("ray_str_vec_set")
+        .allowlist_function("ray_str_vec_insert_at")
+        .allowlist_function("ray_str_vec_compact")
+        .allowlist_function("ray_str_ptr")
+        .allowlist_function("ray_str_len")
+        .allowlist_function("ray_str_cmp")
+        // List API
+        .allowlist_function("ray_list_new")
+        .allowlist_function("ray_list_append")
+        .allowlist_function("ray_list_get")
+        .allowlist_function("ray_list_set")
+        .allowlist_function("ray_list_insert_at")
+        .allowlist_function("ray_list_insert_many")
+        // Symbol intern table
+        .allowlist_function("ray_sym_init")
+        .allowlist_function("ray_sym_destroy")
+        .allowlist_function("ray_sym_intern")
+        .allowlist_function("ray_sym_find")
+        .allowlist_function("ray_sym_str")
+        .allowlist_function("ray_sym_count")
+        .allowlist_function("ray_sym_ensure_cap")
+        .allowlist_function("ray_sym_save")
+        .allowlist_function("ray_sym_load")
+        // Environment
+        .allowlist_function("ray_env_get")
+        .allowlist_function("ray_env_set")
+        // Table
+        .allowlist_function("ray_table_new")
+        .allowlist_function("ray_table_add_col")
+        .allowlist_function("ray_table_get_col")
+        .allowlist_function("ray_table_get_col_idx")
+        .allowlist_function("ray_table_col_name")
+        .allowlist_function("ray_table_set_col_name")
+        .allowlist_function("ray_table_ncols")
+        .allowlist_function("ray_table_nrows")
+        .allowlist_function("ray_table_schema")
+        // Dict
+        .allowlist_function("ray_dict_new")
+        .allowlist_function("ray_dict_keys")
+        .allowlist_function("ray_dict_vals")
+        .allowlist_function("ray_dict_len")
+        .allowlist_function("ray_dict_get")
+        .allowlist_function("ray_dict_upsert")
+        .allowlist_function("ray_dict_remove")
+        // Runtime + eval
+        .allowlist_function("ray_runtime_create")
+        .allowlist_function("ray_runtime_create_with_sym")
+        .allowlist_function("ray_runtime_create_with_sym_err")
+        .allowlist_function("ray_runtime_destroy")
+        .allowlist_function("ray_eval_str")
         // Errors
         .allowlist_function("ray_error")
-        // Accessors
-        .allowlist_function("is_null")
-        .allowlist_function("type_name")
-        // List operations
-        .allowlist_function("push_raw")
-        .allowlist_function("push_obj")
-        .allowlist_function("push_sym")
-        .allowlist_function("append_list")
-        .allowlist_function("unify_list")
-        .allowlist_function("diverse_obj")
-        .allowlist_function("pop_obj")
-        .allowlist_function("remove_idx")
-        .allowlist_function("remove_ids")
-        .allowlist_function("remove_obj")
-        .allowlist_function("ins_raw")
-        .allowlist_function("ins_obj")
-        .allowlist_function("ins_sym")
-        // Read operations
-        .allowlist_function("at_idx")
-        .allowlist_function("at_ids")
-        .allowlist_function("at_obj")
-        .allowlist_function("at_sym")
-        // Format
-        .allowlist_function("str_from_symbol")
-        .allowlist_function("obj_fmt")
-        .allowlist_function("string_from_str")
-        // Set operations
-        .allowlist_function("zero_obj")
-        .allowlist_function("set_idx")
-        .allowlist_function("set_ids")
-        .allowlist_function("set_obj")
-        .allowlist_function("resize_obj")
-        // Search
-        .allowlist_function("find_raw")
-        .allowlist_function("find_obj_idx")
-        .allowlist_function("find_obj_ids")
-        .allowlist_function("find_sym")
-        // Cast
-        .allowlist_function("cast_obj")
-        // Comparison
-        .allowlist_function("cmp_obj")
-        // Serialization
-        .allowlist_function("ser_obj")
-        .allowlist_function("de_obj")
-        // Parse and eval
-        .allowlist_function("parse_str")
-        .allowlist_function("eval_str")
-        .allowlist_function("eval_obj")
-        .allowlist_function("try_obj")
-        .allowlist_function("ray_eval_str")
-        // Runtime
-        .allowlist_function("runtime_create")
-        .allowlist_function("runtime_run")
-        .allowlist_function("runtime_destroy")
-        .allowlist_function("runtime_get_arg")
-        .allowlist_function("ray_init")
-        .allowlist_function("ray_clean")
-        // Query operations
-        .allowlist_function("ray_select")
-        .allowlist_function("ray_update")
-        .allowlist_function("ray_insert")
-        .allowlist_function("ray_upsert")
-        // Compose operations
-        .allowlist_function("ray_table")
-        .allowlist_function("ray_dict")
-        // Items operations
-        .allowlist_function("ray_key")
-        .allowlist_function("ray_value")
-        .allowlist_function("ray_first")
-        .allowlist_function("ray_last")
-        .allowlist_function("ray_at")
-        .allowlist_function("ray_find")
-        .allowlist_function("ray_filter")
-        .allowlist_function("ray_where")
-        // Dict operations
-        .allowlist_function("ray_key")
-        .allowlist_function("ray_value")
-        // IO operations
-        .allowlist_function("ray_hopen")
-        .allowlist_function("ray_hclose")
-        .allowlist_function("ray_write")
-        .allowlist_function("ray_read")
-        // Environment
-        .allowlist_function("env_get_internal_function")
-        .allowlist_function("env_get_internal_name")
-        // Binary operations
-        .allowlist_function("binary_set")
-        // Quote
-        .allowlist_function("ray_quote")
-        // Reference counting sync
-        .allowlist_function("rc_sync_get")
-        .allowlist_function("rc_sync_set")
-        // Generate
+        .allowlist_function("ray_err_code_str")
+        .allowlist_function("ray_err_from_obj")
+        .allowlist_function("ray_err_code")
+        .allowlist_function("ray_error_free")
+        // Globals
+        .allowlist_var("__ray_null")
+        .allowlist_var("__ray_oom")
+        .allowlist_var("ray_type_sizes")
         .generate()
         .expect("Unable to generate bindings");
 

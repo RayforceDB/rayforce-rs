@@ -1,240 +1,232 @@
 # Scalar Types
 
-Scalar types represent single values in RayforceDB. All scalar types are prefixed with `Ray` for namespace clarity.
+Scalar types represent single atom values. Every wrapper here carries
+a **negative** type tag in rayforce 2.0 (e.g. `-RAY_I64`, `-RAY_F64`)
+and stores its value inline in the 32-byte object header.
 
-## Integer Types
+All wrappers implement the [`RayType`](../overview.md#raytype) trait.
+The constructors all return owned values — drop them when you're done
+or hand them off to a container that takes ownership.
 
-### RayI64 (64-bit Integer)
+## Integer types
+
+### RayI64 (64-bit integer)
 
 The most common integer type for general-purpose use.
 
 ```rust
 use rayforce::RayI64;
 
-// Create from value
-let x = RayI64::from_value(42);
-let y = RayI64::from_value(-100);
+let x = RayI64::new(42);
+let y = RayI64::new(-100);
 
-// Access value
-let value: i64 = x.to_python();
-
-// Display
+let value: i64 = x.value();
 println!("{}", x);  // → 42
 ```
 
-### RayI32 (32-bit Integer)
-
-For smaller integer values with reduced memory footprint.
+### RayI32 (32-bit integer)
 
 ```rust
 use rayforce::RayI32;
-
-let x = RayI32::from_value(1000);
-let value: i32 = x.to_python();
+let x = RayI32::new(1000);
+let value: i32 = x.value();
 ```
 
-### RayI16 (16-bit Integer)
-
-Compact integer type for memory-efficient storage.
+### RayI16 (16-bit integer)
 
 ```rust
 use rayforce::RayI16;
-
-let x = RayI16::from_value(100);
-let value: i16 = x.to_python();
+let x = RayI16::new(100);
+let value: i16 = x.value();
 ```
 
-## Floating Point
+## Floating point
 
-### RayF64 (64-bit Float)
-
-Double-precision floating point numbers.
+### RayF64 (64-bit float)
 
 ```rust
 use rayforce::RayF64;
 
-let pi = RayF64::from_value(3.14159);
-let e = RayF64::from_value(2.71828);
-
-let value: f64 = pi.to_python();
+let pi = RayF64::new(3.14159);
+let value: f64 = pi.value();
 println!("{}", pi);  // → 3.14159
 ```
 
-## Byte Types
+## Byte / boolean
 
-### RayU8 (Unsigned Byte)
-
-8-bit unsigned integer, useful for raw byte data.
+### RayU8 (unsigned byte)
 
 ```rust
 use rayforce::RayU8;
-
-let byte = RayU8::from_value(255);
-let value: u8 = byte.to_python();
+let byte = RayU8::new(255);
+let value: u8 = byte.value();
 ```
 
-### RayB8 (Boolean)
-
-Boolean true/false values.
+### RayBool (boolean)
 
 ```rust
-use rayforce::RayB8;
-
-let flag = RayB8::from_value(true);
-let is_true: bool = flag.to_python();
-
-println!("{}", flag);  // → 1b (RayforceDB boolean format)
+use rayforce::RayBool;          // also re-exported as `B8`
+let flag = RayBool::new(true);
+let is_true: bool = flag.value();
+println!("{}", flag);            // → true
 ```
 
-### RayC8 (Character)
+!!! note "What about `RayChar` / `C8`?"
+    Removed in 2.0 — there's no single-character atom type. Use
+    `RayU8::new(b'a')` (a byte) or `RayString::new("a")` (a one-byte
+    string atom) instead.
 
-Single character values.
-
-```rust
-use rayforce::RayC8;
-
-let ch = RayC8::from_value('A');
-let value: char = ch.to_python();
-```
-
-## Symbol Type
+## Symbol type
 
 ### RaySymbol
 
-Interned strings for efficient storage and comparison. Symbols are commonly used for column names and categorical data.
+Interned strings. Construction goes through `ray_sym_intern` (returns
+an `i64` ID), then `ray_sym(id)` wraps the ID as a `-RAY_SYM` atom:
 
 ```rust
 use rayforce::RaySymbol;
 
-// Create symbols
 let name = RaySymbol::new("price");
 let dept = RaySymbol::new("IT");
 
-// Symbols with same content are identical
+// Same name → same interned ID
 let s1 = RaySymbol::new("test");
 let s2 = RaySymbol::new("test");
-// s1 and s2 reference the same interned string
+assert_eq!(s1.id(), s2.id());
 
 println!("{}", name);  // → `price
 ```
 
-### QuotedSymbol
+`RaySymbol::id()` exposes the underlying `i64` ID — useful when
+calling raw FFI that takes a sym ID (e.g. `ray_env_set`,
+`ray_table_add_col`).
 
-For symbols that need to be quoted in expressions.
+## String type
+
+### RayString
+
+A `RAY_STR` atom: small-string-optimised under 7 bytes, pool-backed
+otherwise. New in 2.0 (in 1.0 strings were `TYPE_C8` char vectors).
 
 ```rust
-use rayforce::QuotedSymbol;
+use rayforce::RayString;
 
-let quoted = QuotedSymbol::new("myvar");
-// Used in expression contexts where quoting is needed
+let s = RayString::new("hello");
+println!("{}", s);            // → hello
+println!("len = {}", s.len());
+
+let long = RayString::new(&"x".repeat(1000));
+assert_eq!(long.len(), 1000);
 ```
 
-## Temporal Types
+## Temporal types
 
-### RayDate
+All three temporal atoms store an `i64` value internally. The vector
+element widths differ (`RAY_DATE` and `RAY_TIME` are 4-byte columns,
+`RAY_TIMESTAMP` is an 8-byte column), but atoms always use the i64
+union arm.
 
-Date values without time component.
+### RayDate (days since 2000-01-01)
 
 ```rust
 use rayforce::RayDate;
 use chrono::NaiveDate;
 
-// Create from chrono date
 let date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
-let ray_date = RayDate::from_value(date);
+let ray_date = RayDate::from_naive_date(date);
 
-// Convert back
-let value: NaiveDate = ray_date.to_python();
-println!("{}", ray_date);  // → 2024.01.15
+let back: NaiveDate = ray_date.to_naive_date();
+println!("{}", ray_date);     // → 2024-01-15
+println!("days since epoch: {}", ray_date.days());
 ```
 
-### RayTime
-
-Time-of-day values.
+### RayTime (milliseconds since midnight)
 
 ```rust
 use rayforce::RayTime;
 use chrono::NaiveTime;
 
 let time = NaiveTime::from_hms_opt(9, 30, 0).unwrap();
-let ray_time = RayTime::from_value(time);
+let ray_time = RayTime::from_naive_time(time);
 
-let value: NaiveTime = ray_time.to_python();
-println!("{}", ray_time);  // → 09:30:00.000
+let back: NaiveTime = ray_time.to_naive_time();
+println!("{}", ray_time);     // → 09:30:00
+println!("ms since midnight: {}", ray_time.ms());
 ```
 
-### RayTimestamp
-
-Combined date and time.
+### RayTimestamp (nanoseconds since epoch)
 
 ```rust
 use rayforce::RayTimestamp;
 use chrono::NaiveDateTime;
 
 let dt = NaiveDateTime::parse_from_str(
-    "2024-01-15 09:30:00",
-    "%Y-%m-%d %H:%M:%S"
+    "2024-01-15 09:30:00", "%Y-%m-%d %H:%M:%S"
 ).unwrap();
 
-let ts = RayTimestamp::from_value(dt);
-let value: NaiveDateTime = ts.to_python();
+let ts = RayTimestamp::from_naive_datetime(dt);
+let back: NaiveDateTime = ts.to_naive_datetime();
+println!("ns: {}", ts.nanos());
 ```
 
-## GUID Type
+## GUID type
 
 ### RayGuid
 
-Universally unique identifiers.
+16-byte GUID. The atom stores a pointer to a U8 vector of length 16 in
+its `obj` union field.
 
 ```rust
 use rayforce::RayGuid;
 use uuid::Uuid;
 
-// Create from UUID
-let uuid = Uuid::new_v4();
-let guid = RayGuid::from_value(uuid);
+let g = RayGuid::random();                          // new V4 UUID
+let g = RayGuid::parse("550e8400-e29b-41d4-a716-446655440000")?;
+let g = RayGuid::new(Uuid::new_v4());
 
-// Convert back
-let value: Uuid = guid.to_python();
+let uuid: Uuid = g.to_uuid();
+println!("{}", g);
 ```
 
-## Type Reference Table
+## Type reference table
 
-| Type | Code | Size | Rust Type | Format |
-|------|------|------|-----------|--------|
-| `RayI16` | -5 | 2 bytes | `i16` | `100h` |
-| `RayI32` | -6 | 4 bytes | `i32` | `100i` |
-| `RayI64` | -7 | 8 bytes | `i64` | `100` |
-| `RayF64` | -9 | 8 bytes | `f64` | `3.14` |
-| `RayU8` | -4 | 1 byte | `u8` | `0x42` |
-| `RayB8` | -1 | 1 byte | `bool` | `1b` / `0b` |
-| `RayC8` | -10 | 1 byte | `char` | `"a"` |
-| `RaySymbol` | -11 | ptr | - | `` `sym`` |
-| `RayDate` | -14 | 4 bytes | `NaiveDate` | `2024.01.15` |
-| `RayTime` | -19 | 8 bytes | `NaiveTime` | `09:30:00` |
-| `RayTimestamp` | -12 | 8 bytes | `NaiveDateTime` | timestamp |
-| `RayGuid` | -2 | 16 bytes | `Uuid` | GUID |
+Atom type tags are negative; the magnitude matches the corresponding
+`RAY_*` vector tag. Numeric values come straight from `rayforce.h`.
 
-## Common Patterns
+| Wrapper | Atom tag | Vector tag | Element size | Rust value |
+|---------|----------|------------|--------------|------------|
+| `RayBool` | -1 | `RAY_BOOL` (1) | 1 byte | `bool` |
+| `RayU8` | -2 | `RAY_U8` (2) | 1 byte | `u8` |
+| `RayI16` | -3 | `RAY_I16` (3) | 2 bytes | `i16` |
+| `RayI32` | -4 | `RAY_I32` (4) | 4 bytes | `i32` |
+| `RayI64` | -5 | `RAY_I64` (5) | 8 bytes | `i64` |
+| `RayF64` | -7 | `RAY_F64` (7) | 8 bytes | `f64` |
+| `RayDate` | -8 | `RAY_DATE` (8) | 4 bytes | `chrono::NaiveDate` |
+| `RayTime` | -9 | `RAY_TIME` (9) | 4 bytes | `chrono::NaiveTime` |
+| `RayTimestamp` | -10 | `RAY_TIMESTAMP` (10) | 8 bytes | `chrono::NaiveDateTime` |
+| `RayGuid` | -11 | `RAY_GUID` (11) | 16 bytes | `uuid::Uuid` |
+| `RaySymbol` | -12 | `RAY_SYM` (12) | adaptive width | — |
+| `RayString` | -13 | `RAY_STR` (13) | variable (SSO + pool) | `String` |
 
-### Type Conversion with RayObj
+## Common patterns
+
+### Going through `RayObj`
+
+`RayObj::from(T)` works for any of the primitives that have a
+corresponding `From` impl:
 
 ```rust
 use rayforce::RayObj;
 
-// From primitives
-let obj = RayObj::from(42_i64);
-let obj = RayObj::from(3.14_f64);
+let obj = RayObj::from(42i64);
+let obj = RayObj::from(3.14f64);
 let obj = RayObj::from(true);
+let obj = RayObj::from("hello");          // → -RAY_STR atom
 
-// Check type
-if obj.type_of() == -7 {  // TYPE_I64
-    let value: i64 = obj.into();
-}
-
-// Check for nil
-if obj.is_nil() {
-    println!("Object is nil");
+// Check type via the magnitude of the type tag
+if obj.type_code() == -(rayforce::RAY_I64 as i8) {
+    let value: i64 = obj.try_into().unwrap();
+    println!("{}", value);
 }
 ```
 
@@ -245,21 +237,17 @@ All scalar types implement `Display` and `Debug`:
 ```rust
 use rayforce::{RayI64, RaySymbol};
 
-let x = RayI64::from_value(42);
+let x = RayI64::new(42);
 let s = RaySymbol::new("test");
 
-// Display (user-friendly)
 println!("{}", x);   // → 42
 println!("{}", s);   // → `test
-
-// Debug (with type info)
 println!("{:?}", x); // → RayI64(42)
-println!("{:?}", s); // → RaySymbol("test")
+println!("{:?}", s); // → RaySymbol(`test)
 ```
 
-## Next Steps
+## Next steps
 
-- **[Containers](containers.md)** - Vector, list, dict types
-- **[Table](table.md)** - Working with tables
-- **[Queries](../queries/select.md)** - Query operations
-
+- **[Containers](containers.md)** — `RayVector` / `RayList` / `RayDict` / `RayString`.
+- **[Table](table.md)** — `RayTable` reference.
+- **[FFI](../ffi.md)** — low-level `RayObj` accessor helpers.

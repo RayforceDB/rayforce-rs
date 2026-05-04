@@ -1,23 +1,6 @@
 /*
  * Rayforce Rust bindings wrapper header
- * Auto-generated - includes all necessary rayforce headers
+ * Auto-generated - includes the single rayforce 2.0 public header.
  */
 
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/rayforce.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/def.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/runtime.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/string.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/eval.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/env.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/format.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/query.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/io.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/binary.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/guid.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/date.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/time.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/timestamp.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/error.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/items.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/update.h"
-#include "/home/hetoku/data/work/rayforce-rs/target/debug/build/rayforce-8ede02caba3671c7/out/rayforce-c/core/compose.h"
+#include "/home/user123456msiwsl/lynxtrading/trash/rayforce/rayforce-rs/target/debug/build/rayforce-ae30e0db8f502c65/out/rayforce-c/include/rayforce.h"

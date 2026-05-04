@@ -1,5 +1,5 @@
 /*
-*   Copyright (c) 2025 Anton Kundenko <singaraiona@gmail.com>
+*   Copyright (c) 2025-2026 Anton Kundenko <singaraiona@gmail.com>
 *   All rights reserved.
 
 *   Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -21,36 +21,30 @@
 *   SOFTWARE.
 */
 
-//! # Rayforce Rust Bindings
-//!
-//! Rust bindings for RayforceDB - a high-performance time-series database.
-//!
-//! ## Quick Start
+//! # Rayforce 2.0 Rust bindings
 //!
 //! ```rust,no_run
-//! use rayforce::{Rayforce, RayI64, RayF64, RaySymbol, RayVector, RayList, RayType};
+//! use rayforce::{Rayforce, Result};
 //!
-//! // Initialize the runtime
-//! let rf = Rayforce::new().unwrap();
-//!
-//! // Create scalar values
-//! let num = RayI64::new(42);
-//! let pi = RayF64::new(3.14159);
-//!
-//! // Create vectors with explicit types
-//! let ids = RayVector::<i64>::from_iter([1i64, 2, 3, 4, 5]);
-//! let names = RayVector::<RaySymbol>::from_iter(["Alice", "Bob", "Charlie"]);
-//!
-//! // Create mixed lists
-//! let mut list = RayList::new();
-//! list.push(1i64);
-//! list.push("hello");
-//! list.push(3.14f64);
-//!
-//! // Evaluate expressions
-//! let result = rf.eval("42").unwrap();
-//! println!("Result: {}", result);
+//! fn main() -> Result<()> {
+//!     let rf = Rayforce::new()?;
+//!     let result = rf.eval("sum 1 2 3 4 5")?;
+//!     println!("Sum: {}", result);
+//!     Ok(())
+//! }
 //! ```
+//!
+//! ## What changed from the 1.0 bindings
+//!
+//! - The high-level query builder (`Table::select()` / `update()` / ...)
+//!   has been removed because the C functions backing it
+//!   (`ray_select`/`ray_update`/...) are no longer in the 2.0 public
+//!   API.  Run queries via [`Rayforce::eval`] with a Rayfall source
+//!   string for now.
+//! - The `ipc` module is gone for the same reason: 2.0 does not yet
+//!   expose `ray_hopen`/`ray_hclose`/`ray_write`/`ray_read` as public C
+//!   symbols.  Both are tracked as future work once the upstream
+//!   project re-publishes them.
 
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
@@ -60,47 +54,34 @@
 pub mod error;
 pub mod ffi;
 pub mod types;
-pub mod query;
-pub mod ipc;
 
 pub use error::{RayforceError, Result};
 pub use ffi::RayObj;
 pub use types::*;
-// Query types are re-exported from types::table
-// pub use query::*;
-pub use ipc::{Connection, hopen};
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr;
-use std::sync::Once;
 
-// Include the generated bindings
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-static INIT: Once = Once::new();
-static mut RUNTIME: *mut runtime_t = ptr::null_mut();
-
-/// Builder for creating a Rayforce runtime with custom arguments.
+/// Builder for creating a Rayforce runtime with custom CLI args.
 pub struct RayforceBuilder {
     args: Vec<CString>,
 }
 
 impl RayforceBuilder {
-    /// Create a new builder with default program name.
     pub fn new() -> Self {
         Self {
             args: vec![CString::new("rayforce").unwrap()],
         }
     }
 
-    /// Add a command-line argument.
     pub fn with_arg(mut self, arg: &str) -> Self {
         self.args.push(CString::new(arg).unwrap());
         self
     }
 
-    /// Build the Rayforce runtime.
     pub fn build(self) -> Result<Rayforce> {
         unsafe {
             let mut c_args: Vec<*mut c_char> = self
@@ -110,12 +91,11 @@ impl RayforceBuilder {
                 .collect();
             c_args.push(ptr::null_mut());
 
-            let runtime = runtime_create(c_args.len() as i32 - 1, c_args.as_mut_ptr());
-            if !runtime.is_null() {
-                RUNTIME = runtime;
-                Ok(Rayforce { runtime })
-            } else {
+            let rt = ray_runtime_create(c_args.len() as i32 - 1, c_args.as_mut_ptr());
+            if rt.is_null() {
                 Err(RayforceError::RuntimeCreationFailed)
+            } else {
+                Ok(Rayforce { runtime: rt })
             }
         }
     }
@@ -127,75 +107,88 @@ impl Default for RayforceBuilder {
     }
 }
 
-/// The main Rayforce runtime handle.
+/// Handle for the rayforce 2.0 runtime.
 ///
-/// This struct manages the lifecycle of the Rayforce database runtime.
-/// Only one runtime can exist at a time.
+/// Only one runtime can exist per process at a time. Dropping this
+/// handle calls `ray_runtime_destroy`, which tears down the heap, env,
+/// and symbol table.
 pub struct Rayforce {
-    runtime: *mut runtime_t,
+    runtime: *mut ray_runtime_t,
 }
 
-// Safety: The runtime is thread-safe as documented by Rayforce
 unsafe impl Send for Rayforce {}
 unsafe impl Sync for Rayforce {}
 
 impl Rayforce {
-    /// Create a new Rayforce runtime with default settings.
-    ///
-    /// The `-r 0` flag disables the REPL for embedded use.
+    /// Create a runtime with default settings.
     pub fn new() -> Result<Self> {
-        RayforceBuilder::new().with_arg("-r").with_arg("0").build()
+        RayforceBuilder::new().build()
     }
 
-    /// Create a new Rayforce runtime with a builder.
     pub fn builder() -> RayforceBuilder {
         RayforceBuilder::new()
     }
 
-    /// Get the Rayforce version.
-    pub fn version(&self) -> u8 {
-        unsafe { version() }
-    }
-
-    /// Run the Rayforce event loop (blocking).
-    pub fn run(&self) -> i32 {
-        unsafe { runtime_run() }
-    }
-
-    /// Get the raw runtime pointer.
-    pub fn as_ptr(&self) -> *mut runtime_t {
-        self.runtime
-    }
-
-    /// Evaluate a string expression.
-    pub fn eval(&self, code: &str) -> Result<RayObj> {
-        let c_str = CString::new(code).map_err(|_| RayforceError::InvalidString)?;
+    /// Engine version as a "major.minor.patch" string.
+    pub fn version(&self) -> String {
         unsafe {
-            let obj = eval_str(c_str.as_ptr());
-            if obj.is_null() {
-                Err(RayforceError::EvalFailed("Evaluation returned null".into()))
-            } else if (*obj).type_ == TYPE_ERR as i8 {
-                let error_msg = ffi::get_error_message(obj);
-                Err(RayforceError::EvalFailed(error_msg))
+            let p = ray_version_string();
+            if p.is_null() {
+                String::new()
             } else {
-                Ok(RayObj::from_raw(obj))
+                CStr::from_ptr(p).to_string_lossy().into_owned()
             }
         }
     }
 
-    /// Evaluate a RayObj expression.
-    pub fn eval_obj(&self, obj: &RayObj) -> Result<RayObj> {
+    pub fn version_major(&self) -> i32 {
+        unsafe { ray_version_major() }
+    }
+
+    pub fn version_minor(&self) -> i32 {
+        unsafe { ray_version_minor() }
+    }
+
+    pub fn version_patch(&self) -> i32 {
+        unsafe { ray_version_patch() }
+    }
+
+    /// Raw runtime pointer (for embedders that need to call
+    /// engine-specific FFI directly).
+    pub fn as_ptr(&self) -> *mut ray_runtime_t {
+        self.runtime
+    }
+
+    /// Parse and evaluate a Rayfall source string.
+    ///
+    /// Returns the evaluated value or a `RayforceError::Ray` on error.
+    /// `NULL`/void results are returned as a `RayObj` wrapping a NULL
+    /// pointer (call [`RayObj::is_nil`] to detect this).
+    pub fn eval(&self, code: &str) -> Result<RayObj> {
+        let c_str = CString::new(code).map_err(|_| RayforceError::InvalidString)?;
         unsafe {
-            let cloned = clone_obj(obj.as_ptr());
-            let result = eval_obj(cloned);
-            if result.is_null() {
-                Err(RayforceError::EvalFailed("Evaluation returned null".into()))
-            } else if (*result).type_ == TYPE_ERR as i8 {
-                let error_msg = ffi::get_error_message(result);
-                Err(RayforceError::EvalFailed(error_msg))
-            } else {
-                Ok(RayObj::from_raw(result))
+            let obj = ray_eval_str(c_str.as_ptr());
+            if obj.is_null() {
+                return Ok(RayObj::from_raw(ptr::null_mut()));
             }
+            if ffi::is_error(obj) {
+                let kind = ray_err_from_obj(obj);
+                let code = {
+                    let p = ray_err_code(obj);
+                    if p.is_null() {
+                        "?".to_string()
+                    } else {
+                        CStr::from_ptr(p).to_string_lossy().into_owned()
+                    }
+                };
+                ray_error_free(obj);
+                return Err(RayforceError::Ray {
+                    code: code.clone(),
+                    message: code,
+                    kind: Some(kind),
+                });
+            }
+            Ok(RayObj::from_raw(obj))
         }
     }
 }
@@ -203,8 +196,10 @@ impl Rayforce {
 impl Drop for Rayforce {
     fn drop(&mut self) {
         unsafe {
-            runtime_destroy();
-            RUNTIME = ptr::null_mut();
+            if !self.runtime.is_null() {
+                ray_runtime_destroy(self.runtime);
+                self.runtime = ptr::null_mut();
+            }
         }
     }
 }
@@ -213,19 +208,11 @@ impl Drop for Rayforce {
 mod tests {
     use super::*;
 
-    // Note: All runtime tests must be in one test function
-    // because only one Rayforce runtime can exist at a time.
     #[test]
     fn test_runtime() {
-        // Test creation
         let rf = Rayforce::new().unwrap();
         assert!(!rf.as_ptr().is_null());
-
-        // Test version
-        let v = rf.version();
-        assert!(v > 0);
-
-        // Test eval
+        assert!(rf.version_major() >= 2);
         let result = rf.eval("42").unwrap();
         let val: i64 = result.try_into().unwrap();
         assert_eq!(val, 42);

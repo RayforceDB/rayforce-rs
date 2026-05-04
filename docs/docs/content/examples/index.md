@@ -1,315 +1,289 @@
 # Examples
 
-Code examples demonstrating rayforce-rs usage.
+Code examples demonstrating rayforce-rs against rayforce 2.0.
 
-## Basic Examples
+!!! info "Queries go through `Rayforce::eval`"
+    The Rust query-builder API (`Table::select()` / `update()` /
+    `insert()` / `upsert()`) is **not part of this release** — the C
+    symbols backing it (`ray_select`, `ray_update`, …) were removed
+    from the rayforce 2.0 public API. Run queries by composing
+    Rayfall source strings and feeding them to `Rayforce::eval`. A
+    fluent Rust builder that synthesises Rayfall strings is on the
+    roadmap; see the project README's "Migrating from 1.0" section.
 
-### Hello World
+## Basic examples
+
+### Hello world
 
 ```rust
 use rayforce::Rayforce;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
-    let result = ray.eval("(+ 1 2 3)")?;
+    let rf = Rayforce::new()?;
+    let result = rf.eval("sum 1 2 3")?;
     println!("1 + 2 + 3 = {}", result);
-    
     Ok(())
 }
 ```
 
-### Working with Types
+### Working with types
 
 ```rust
 use rayforce::{
-    Rayforce, RayI64, RayF64, RaySymbol, 
-    RayVector, RayList, RayDict, RayObj
+    Rayforce, RayI64, RayF64, RaySymbol, RayString,
+    RayVector, RayList, RayDict, RayType,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
+    let _rf = Rayforce::new()?;
+
     // Scalars
-    let price = RayI64::from_value(150);
-    let ratio = RayF64::from_value(1.5);
+    let price  = RayI64::new(150);
+    let ratio  = RayF64::new(1.5);
     let symbol = RaySymbol::new("AAPL");
-    
-    println!("Price: {}", price);
-    println!("Ratio: {}", ratio);
-    println!("Symbol: {}", symbol);
-    
-    // Vectors
-    let prices: RayVector<i64> = RayVector::from_iter([100, 150, 200]);
+    let name   = RayString::new("Alice");
+    println!("Price: {price}\nRatio: {ratio}\nSymbol: {symbol}\nName: {name}");
+
+    // Typed columns
+    let prices: RayVector<i64> = RayVector::from_iter([100i64, 150, 200]);
     let quantities: RayVector<f64> = RayVector::from_iter([10.0, 20.0, 30.0]);
-    
-    println!("Prices: {}", prices);
-    
-    // Lists
+    let symbols = RayVector::<RaySymbol>::from_iter(["AAPL", "GOOG", "MSFT"]);
+    println!("prices: {prices}");
+    println!("quantities: {quantities}");
+    println!("({} symbols)", symbols.len());
+
+    // Heterogeneous list
     let mut list = RayList::new();
-    list.push(RayObj::from(42_i64));
-    list.push(RayObj::from("hello"));
-    list.push(RayObj::from(3.14_f64));
-    
+    list.push(42i64);
+    list.push("hello");
+    list.push(3.14f64);
     println!("List length: {}", list.len());
-    
-    // Dictionaries
+
+    // Dict (string keys are interned to symbols)
     let dict = RayDict::from_pairs([
-        (RaySymbol::new("name"), RayObj::from("Alice")),
-        (RaySymbol::new("age"), RayObj::from(30_i64)),
-    ]);
-    
-    println!("Dict keys: {:?}", dict.keys());
-    
+        ("name", RayString::new("Alice").ptr().clone()),
+        ("age",  RayI64::new(30).ptr().clone()),
+    ])?;
+    println!("dict has {} keys", dict.len());
     Ok(())
 }
 ```
 
-## Table Operations
+## Tables
 
-### Creating Tables
+### Building a table from Rust data
+
+```rust
+use rayforce::{RayTable, RayVector, RaySymbol, RayType};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let employees = RayTable::from_dict([
+        ("id",        RayVector::<i64>::from_iter([1i64, 2, 3, 4, 5]).as_ray_obj().clone()),
+        ("name",      RayVector::<RaySymbol>::from_iter(["Alice", "Bob", "Charlie", "David", "Eve"]).as_ray_obj().clone()),
+        ("dept",      RayVector::<RaySymbol>::from_iter(["Engineering", "Sales", "Engineering", "HR", "Engineering"]).as_ray_obj().clone()),
+        ("salary",    RayVector::<i64>::from_iter([85000i64, 65000, 95000, 55000, 78000]).as_ray_obj().clone()),
+    ])?;
+
+    println!("Employees ({} rows × {} cols):\n{}",
+        employees.len()?,
+        employees.ncols(),
+        employees);
+    Ok(())
+}
+```
+
+### Building a table inside Rayfall
 
 ```rust
 use rayforce::Rayforce;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
-    // Create employees table
-    let employees = ray.eval(r#"
+    let rf = Rayforce::new()?;
+
+    let employees = rf.eval(r#"
         (table [id name dept salary hire_date]
             (list
                 [1 2 3 4 5]
-                (list "Alice" "Bob" "Charlie" "David" "Eve")
-                ['Engineering 'Sales 'Engineering 'HR 'Engineering]
+                [`Alice `Bob `Charlie `David `Eve]
+                [`Engineering `Sales `Engineering `HR `Engineering]
                 [85000 65000 95000 55000 78000]
                 [2020.01.15 2019.06.20 2018.03.10 2021.09.01 2022.02.28]))
     "#)?;
-    
-    println!("Employees table:");
-    println!("{}", employees);
-    
+    println!("{employees}");
     Ok(())
 }
 ```
 
-### Querying Tables
+### Querying tables
 
 ```rust
-use rayforce::Rayforce;
+use rayforce::{Rayforce, RayTable, RayVector, RaySymbol, RayType};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
-    // Create and store table
-    ray.eval(r#"
-        (set employees (table [name dept salary]
-            (list
-                (list "Alice" "Bob" "Charlie" "David")
-                ['IT 'HR 'IT 'Sales]
-                [75000 65000 85000 70000])))
-    "#)?;
-    
+    let rf = Rayforce::new()?;
+
+    let employees = RayTable::from_dict([
+        ("name",   RayVector::<RaySymbol>::from_iter(["Alice", "Bob", "Charlie", "David"]).as_ray_obj().clone()),
+        ("dept",   RayVector::<RaySymbol>::from_iter(["IT", "HR", "IT", "Sales"]).as_ray_obj().clone()),
+        ("salary", RayVector::<i64>::from_iter([75000i64, 65000, 85000, 70000]).as_ray_obj().clone()),
+    ])?;
+    employees.save("employees")?;     // bind under the name "employees"
+
     // Filter
     println!("High earners:");
-    let high_earners = ray.eval(r#"
-        (select {
-            name: name
-            salary: salary
-            from: employees
-            where: (> salary 70000)})
-    "#)?;
-    println!("{}\n", high_earners);
-    
+    println!("{}\n", rf.eval(r#"
+        (select {from:employees name:name salary:salary where:(> salary 70000)})
+    "#)?);
+
     // Aggregate
     println!("By department:");
-    let by_dept = ray.eval(r#"
-        (select {
-            dept: dept
-            count: (count name)
-            avg_salary: (avg salary)
-            total_salary: (sum salary)
-            from: employees
-            by: dept})
-    "#)?;
-    println!("{}", by_dept);
-    
+    println!("{}\n", rf.eval(r#"
+        (select {from:employees by: dept
+                 count:(count name)
+                 avg_salary:(avg salary)
+                 total_salary:(sum salary)})
+    "#)?);
     Ok(())
 }
 ```
 
-## Financial Data Example
+## Financial data
 
-### Trade Analysis
+### Trade analysis
 
 ```rust
 use rayforce::Rayforce;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
-    // Create trades table
-    ray.eval(r#"
+    let rf = Rayforce::new()?;
+
+    rf.eval(r#"
         (set trades (table [trade_id sym time price qty side]
             (list
                 [1 2 3 4 5 6 7 8]
-                ['AAPL 'MSFT 'AAPL 'GOOGL 'MSFT 'AAPL 'GOOGL 'MSFT]
+                [`AAPL `MSFT `AAPL `GOOGL `MSFT `AAPL `GOOGL `MSFT]
                 [09:30:01 09:30:05 09:31:00 09:31:30 09:32:00 09:32:15 09:33:00 09:33:30]
                 [150.00 300.00 150.50 2800.00 301.00 149.75 2805.00 299.50]
                 [100 50 200 25 75 150 30 100]
-                ['buy 'buy 'sell 'buy 'sell 'buy 'sell 'buy])))
+                [`buy `buy `sell `buy `sell `buy `sell `buy])))
     "#)?;
-    
-    println!("All trades:");
-    println!("{}\n", ray.eval("trades")?);
-    
-    // Trade summary by symbol
-    let summary = ray.eval(r#"
-        (select {
-            sym: sym
-            trade_count: (count trade_id)
-            total_qty: (sum qty)
-            total_value: (sum (* price qty))
-            avg_price: (avg price)
-            vwap: (% (sum (* price qty)) (sum qty))
-            from: trades
-            by: sym})
+    println!("All trades:\n{}\n", rf.eval("trades")?);
+
+    // Summary by symbol — VWAP and totals.
+    let summary = rf.eval(r#"
+        (select {from:trades by: sym
+                 trade_count:(count trade_id)
+                 total_qty:(sum qty)
+                 total_value:(sum (* price qty))
+                 avg_price:(avg price)
+                 vwap:(% (sum (* price qty)) (sum qty))})
     "#)?;
-    
-    println!("Summary by symbol:");
-    println!("{}\n", summary);
-    
-    // Buy vs Sell
-    let by_side = ray.eval(r#"
-        (select {
-            side: side
-            count: (count trade_id)
-            value: (sum (* price qty))
-            from: trades
-            by: side})
+    println!("Summary by symbol:\n{summary}\n");
+
+    // Buy vs sell
+    let by_side = rf.eval(r#"
+        (select {from:trades by: side
+                 count:(count trade_id)
+                 value:(sum (* price qty))})
     "#)?;
-    
-    println!("By side:");
-    println!("{}", by_side);
-    
+    println!("By side:\n{by_side}");
     Ok(())
 }
 ```
 
-## Time Series Example
+## Time series
 
-### OHLC Calculation
+### OHLC calculation
 
 ```rust
 use rayforce::Rayforce;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
-    // Create tick data
-    ray.eval(r#"
+    let rf = Rayforce::new()?;
+
+    rf.eval(r#"
         (set ticks (table [sym time price]
             (list
-                ['AAPL 'AAPL 'AAPL 'AAPL 'AAPL 'AAPL 'AAPL 'AAPL]
+                [`AAPL `AAPL `AAPL `AAPL `AAPL `AAPL `AAPL `AAPL]
                 [09:30:00 09:30:15 09:30:30 09:30:45 09:31:00 09:31:15 09:31:30 09:31:45]
                 [150.00 150.25 150.10 150.50 150.45 150.30 150.60 150.55])))
     "#)?;
-    
-    // Group by minute for OHLC
-    // Note: This is simplified - real OHLC would use proper time bucketing
-    let ohlc = ray.eval(r#"
-        (select {
-            open: (first price)
-            high: (max price)
-            low: (min price)
-            close: (last price)
-            from: ticks})
+
+    // Single-bucket OHLC for the whole window. Real time-bucketing
+    // would group by `(xbar 60 time)` or similar.
+    let ohlc = rf.eval(r#"
+        (select {from:ticks
+                 open:(first price) high:(max price)
+                 low:(min price)   close:(last price)})
     "#)?;
-    
-    println!("OHLC:");
-    println!("{}", ohlc);
-    
+    println!("OHLC:\n{ohlc}");
     Ok(())
 }
 ```
 
-## Join Example
+## Joins
 
-### Orders and Customers
+### Orders and customers
 
 ```rust
 use rayforce::Rayforce;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
-    // Create customers
-    ray.eval(r#"
+    let rf = Rayforce::new()?;
+
+    rf.eval(r#"
         (set customers (table [cust_id name region tier]
             (list
                 [1 2 3]
-                (list "Acme Corp" "Beta Inc" "Gamma LLC")
-                ['East 'West 'East]
-                ['Gold 'Silver 'Gold])))
+                [`Acme `Beta `Gamma]
+                [`East `West `East]
+                [`Gold `Silver `Gold])))
     "#)?;
-    
-    // Create orders
-    ray.eval(r#"
+
+    rf.eval(r#"
         (set orders (table [order_id cust_id product qty price]
             (list
                 [1001 1002 1003 1004 1005]
                 [1 2 1 3 2]
-                (list "Widget" "Gadget" "Gizmo" "Widget" "Gadget")
+                [`Widget `Gadget `Gizmo `Widget `Gadget]
                 [10 5 3 20 8]
                 [99.90 149.95 44.97 199.80 119.96])))
     "#)?;
-    
-    println!("Orders:");
-    println!("{}\n", ray.eval("orders")?);
-    
-    println!("Customers:");
-    println!("{}\n", ray.eval("customers")?);
-    
-    // Join orders with customers
-    let enriched = ray.eval(r#"
-        (left-join [cust_id] orders customers)
+
+    println!("Orders:\n{}\n", rf.eval("orders")?);
+    println!("Customers:\n{}\n", rf.eval("customers")?);
+
+    let enriched = rf.eval("(left-join [`cust_id] orders customers)")?;
+    println!("Enriched orders:\n{enriched}\n");
+
+    let by_tier = rf.eval(r#"
+        (select {from:(left-join [`cust_id] orders customers)
+                 by: tier
+                 order_count:(count order_id)
+                 total_revenue:(sum price)})
     "#)?;
-    
-    println!("Enriched orders:");
-    println!("{}\n", enriched);
-    
-    // Revenue by customer tier
-    let by_tier = ray.eval(r#"
-        (select {
-            tier: tier
-            order_count: (count order_id)
-            total_revenue: (sum price)
-            from: (left-join [cust_id] orders customers)
-            by: tier})
-    "#)?;
-    
-    println!("Revenue by tier:");
-    println!("{}", by_tier);
-    
+    println!("Revenue by tier:\n{by_tier}");
     Ok(())
 }
 ```
 
-## Running Examples
+## Running examples
 
-All examples are in the `examples/` directory. Run with:
+The crate ships two ready-to-run examples in `examples/`:
 
 ```bash
-# Run specific example
-cargo run --example basic
+cargo run --example basic     # happy-path smoke test (scalars, vectors, lists, dicts, eval)
+cargo run --example repl      # minimal read → eval → print loop, :q to quit
 
-# Run with release optimizations
+# Release build:
 cargo run --release --example basic
 ```
 
-## More Resources
+Iterating against a local rayforce checkout? Set
+`RAYFORCE_GITHUB=file:///path/to/rayforce` to avoid hitting GitHub.
 
-- **[API Reference](../api/overview.md)** - Complete API documentation
-- **[Get Started](../get-started/overview.md)** - Installation and setup
-- **[GitHub](https://github.com/RayforceDB/rayforce-rs)** - Source code and issues
+## More resources
 
+- **[API Reference](../api/overview.md)** — full API docs.
+- **[Get Started](../get-started/overview.md)** — installation and setup.
+- **[GitHub](https://github.com/RayforceDB/rayforce-rs)** — source and issues.

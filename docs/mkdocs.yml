@@ -118,14 +118,7 @@ nav:
       - Scalars: content/api/types/scalars.md
       - Containers: content/api/types/containers.md
       - Table: content/api/types/table.md
-    - Queries:
-      - Select: content/api/queries/select.md
-      - Update: content/api/queries/update.md
-      - Insert: content/api/queries/insert.md
-      - Upsert: content/api/queries/upsert.md
-      - Joins: content/api/queries/joins.md
     - FFI: content/api/ffi.md
-    - IPC: content/api/ipc.md
 
   - Examples: content/examples/index.md
 

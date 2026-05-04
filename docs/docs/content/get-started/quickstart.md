@@ -1,8 +1,9 @@
 # Quick Start
 
-This guide will walk you through building your first application with rayforce-rs.
+This guide walks you through building your first application with
+rayforce-rs against rayforce 2.0.
 
-## Basic Setup
+## Basic setup
 
 Every rayforce-rs application starts by initializing the runtime:
 
@@ -10,246 +11,240 @@ Every rayforce-rs application starts by initializing the runtime:
 use rayforce::Rayforce;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the RayforceDB runtime
-    let ray = Rayforce::new()?;
-    
+    let rf = Rayforce::new()?;
     // Your code here...
-    
     Ok(())
 }
 ```
 
-The `Rayforce::new()` call initializes the database engine. The runtime is automatically cleaned up when the `Rayforce` instance goes out of scope.
+`Rayforce::new()` initializes the engine. The runtime is automatically
+torn down (`ray_runtime_destroy`) when the `Rayforce` instance goes out
+of scope. Only one runtime can exist per process at a time.
 
-## Working with Scalars
+## Working with scalars
 
-RayforceDB has several scalar types, all available with the `Ray` prefix:
+RayforceDB has several scalar types, all available with the `Ray`
+prefix:
 
 ```rust
-use rayforce::{RayI64, RayF64, RaySymbol, RayObj};
+use rayforce::{RayI64, RayF64, RaySymbol, RayString, RayObj};
 
 // Integer types
-let a = RayI64::from_value(42);
-let b = RayI64::from_value(100);
+let a = RayI64::new(42);
+let b = RayI64::new(100);
 
 // Floating point
-let pi = RayF64::from_value(3.14159);
+let pi = RayF64::new(3.14159);
 
-// Symbols (interned strings)
+// Symbols (interned through ray_sym_intern)
 let sym = RaySymbol::new("price");
 
+// Strings (SSO atom — inline below 7 bytes, pool-backed otherwise)
+let greeting = RayString::new("hello, rayforce");
+
 // Generic object from primitives
-let obj = RayObj::from(42_i64);
+let obj = RayObj::from(42i64);
 let obj2 = RayObj::from("hello");
 ```
 
-## Creating Vectors
+!!! note "What about `RayChar` / `C8`?"
+    The single-character atom type was removed in rayforce 2.0. Use
+    `RayU8::new(b'a')` or `RayString::new("a")` depending on the
+    situation.
 
-Vectors are homogeneous arrays of values:
+## Creating vectors
+
+Vectors are homogeneous typed columns:
 
 ```rust
-use rayforce::RayVector;
+use rayforce::{RayVector, RaySymbol};
 
-// From an iterator
-let prices: RayVector<i64> = RayVector::from_iter([100, 200, 300, 400]);
-
-// From a slice
+let prices: RayVector<i64> = RayVector::from_iter([100i64, 200, 300, 400]);
 let quantities: RayVector<f64> = RayVector::from_iter([1.5, 2.0, 3.5]);
+let symbols = RayVector::<RaySymbol>::from_iter(["AAPL", "GOOGL", "MSFT"]);
 
-// Access length
 println!("Count: {}", prices.len());
 ```
 
-## Creating Lists
+`RayVector::<i64>::set(idx, value)` and `<f64>::set(idx, value)` mutate
+elements via the engine's COW mechanism (`ray_vec_set`).
 
-Lists are heterogeneous containers:
+## Creating lists
+
+Lists are heterogeneous boxed containers:
 
 ```rust
-use rayforce::{RayList, RayObj};
+use rayforce::RayList;
 
 let mut list = RayList::new();
-list.push(RayObj::from(42_i64));
-list.push(RayObj::from("hello"));
-list.push(RayObj::from(3.14_f64));
+list.push(42i64);
+list.push("hello");
+list.push(3.14f64);
 
-// Access by index
-let first = list.get(0);
-
-// Iterate
+if let Some(first) = list.get(0) {
+    println!("first item: {}", first);
+}
 for item in list.iter() {
     println!("{}", item);
 }
 ```
 
-## Creating Dictionaries
+## Creating dictionaries
 
-Dictionaries map keys to values:
+Dictionaries map symbol keys to values. `from_pairs` interns each name
+into a symbol:
 
 ```rust
-use rayforce::{RayDict, RaySymbol, RayObj};
+use rayforce::{RayDict, RayI64, RayString, RayType};
 
 let dict = RayDict::from_pairs([
-    (RaySymbol::new("name"), RayObj::from("Alice")),
-    (RaySymbol::new("age"), RayObj::from(30_i64)),
-    (RaySymbol::new("salary"), RayObj::from(75000_i64)),
-]);
+    ("name",   RayString::new("Alice").ptr().clone()),
+    ("age",    RayI64::new(30).ptr().clone()),
+    ("salary", RayI64::new(75000).ptr().clone()),
+])?;
 
-// Access by key
-let name = dict.get(&RaySymbol::new("name"));
+if let Some(name) = dict.get("name") {
+    println!("name = {}", name);
+}
+println!("dict has {} keys", dict.len());
 ```
 
-## Evaluating Expressions
+## Evaluating Rayfall expressions
 
-RayforceDB uses a Lisp-like expression syntax:
+RayforceDB's query language is **Rayfall** — a Lisp-like syntax. From
+Rust you reach it via `Rayforce::eval`:
 
 ```rust
 use rayforce::Rayforce;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
-    // Simple arithmetic
-    let sum = ray.eval("(+ 1 2 3)")?;
+    let rf = Rayforce::new()?;
+
+    let sum = rf.eval("sum 1 2 3")?;
     println!("Sum: {}", sum);  // → 6
-    
-    // Nested expressions
-    let complex = ray.eval("(* (+ 1 2) (- 10 5))")?;
+
+    let complex = rf.eval("(* (+ 1 2) (- 10 5))")?;
     println!("Result: {}", complex);  // → 15
-    
-    // Vector operations
-    let vec_sum = ray.eval("(sum [1 2 3 4 5])")?;
+
+    let vec_sum = rf.eval("sum [1 2 3 4 5]")?;
     println!("Vector sum: {}", vec_sum);  // → 15
-    
-    // Aggregations
-    let avg = ray.eval("(avg [10 20 30 40 50])")?;
+
+    let avg = rf.eval("avg [10 20 30 40 50]")?;
     println!("Average: {}", avg);  // → 30
-    
     Ok(())
 }
 ```
 
-## Working with Tables
+Errors from the engine come back as
+`RayforceError::Ray { code, message, kind }` where `code` is the short
+tag (`"oom"`, `"type"`, `"range"`, …).
 
-Tables are the core data structure for analytics:
+## Working with tables
+
+Build a table from `(name, column)` pairs:
 
 ```rust
-use rayforce::{Rayforce, RayTable};
+use rayforce::{RayTable, RayVector, RaySymbol, RayType};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
-    // Create a table via evaluation
-    let employees = ray.eval(r#"
-        (table [name dept salary]
-            (list
-                (list "Alice" "Bob" "Charlie")
-                ['IT 'HR 'IT]
-                [75000 65000 85000]))
-    "#)?;
-    
-    println!("Employees:\n{}", employees);
-    
-    Ok(())
-}
+let employees = RayTable::from_dict([
+    ("name",   RayVector::<RaySymbol>::from_iter(["Alice", "Bob", "Charlie"]).as_ray_obj().clone()),
+    ("dept",   RayVector::<RaySymbol>::from_iter(["IT", "HR", "IT"]).as_ray_obj().clone()),
+    ("salary", RayVector::<i64>::from_iter([75000i64, 65000, 85000]).as_ray_obj().clone()),
+])?;
+
+println!("rows: {}, cols: {}", employees.len()?, employees.ncols());
+println!("columns: {:?}", employees.columns()?);
+let salaries = employees.get_column("salary")?;
+println!("salaries: {}", salaries);
 ```
 
-## Querying Tables
-
-Perform SQL-like queries with a fluent API:
+You can also build a table directly inside Rayfall via `eval`:
 
 ```rust
-use rayforce::Rayforce;
+let employees = rf.eval(r#"
+    (table [name dept salary]
+        (list [`Alice `Bob `Charlie]
+              [`IT `HR `IT]
+              [75000 65000 85000]))
+"#)?;
+println!("{}", employees);
+```
+
+## Querying tables
+
+!!! info "What happened to `Table::select()` / `update()` / `insert()`?"
+    The high-level Rust query builder is **not part of this release**.
+    The C symbols backing it (`ray_select` / `ray_update` /
+    `ray_insert` / `ray_upsert`) are no longer in the rayforce 2.0
+    public API. Run queries by composing Rayfall source and calling
+    `Rayforce::eval`. A future version may re-introduce a fluent Rust
+    builder that synthesises Rayfall strings.
+
+Bind a table under a name and query it through `eval`:
+
+```rust
+use rayforce::{Rayforce, RayTable, RayVector, RaySymbol, RayType};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ray = Rayforce::new()?;
-    
-    // Create sample data
-    ray.eval(r#"
-        (set employees
-            (table [name dept salary]
-                (list
-                    (list "Alice" "Bob" "Charlie" "David")
-                    ['IT 'HR 'IT 'Sales]
-                    [75000 65000 85000 70000])))
-    "#)?;
-    
+    let rf = Rayforce::new()?;
+
+    let employees = RayTable::from_dict([
+        ("name",   RayVector::<RaySymbol>::from_iter(["Alice", "Bob", "Charlie", "David"]).as_ray_obj().clone()),
+        ("dept",   RayVector::<RaySymbol>::from_iter(["IT", "HR", "IT", "Sales"]).as_ray_obj().clone()),
+        ("salary", RayVector::<i64>::from_iter([75000i64, 65000, 85000, 70000]).as_ray_obj().clone()),
+    ])?;
+    employees.save("employees")?;   // bind under the name "employees"
+
     // SELECT with WHERE
-    let high_earners = ray.eval(r#"
-        (select {
-            name: name
-            salary: salary
-            from: employees
-            where: (> salary 70000)})
+    let high_earners = rf.eval(r#"
+        (select {from:employees name:name salary:salary where:(> salary 70000)})
     "#)?;
-    println!("High earners:\n{}", high_earners);
-    
+    println!("high earners:\n{}", high_earners);
+
     // GROUP BY with aggregation
-    let by_dept = ray.eval(r#"
-        (select {
-            avg_salary: (avg salary)
-            headcount: (count name)
-            from: employees
-            by: dept})
+    let by_dept = rf.eval(r#"
+        (select {from:employees by: dept avg_salary:(avg salary) headcount:(count name)})
     "#)?;
-    println!("By department:\n{}", by_dept);
-    
+    println!("by department:\n{}", by_dept);
     Ok(())
 }
 ```
 
-## Complete Example
+`RayTable::save(name)` is backed by `ray_env_set(ray_sym_intern(name),
+table)`, the same mechanism the runtime uses to bind any global value.
 
-Here's a complete example putting it all together:
+## Complete example
+
+Putting it all together:
 
 ```rust
-use rayforce::{Rayforce, RayVector, RayList, RayObj, RaySymbol};
+use rayforce::{Rayforce, RayTable, RayVector, RaySymbol, RayType};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize runtime
-    let ray = Rayforce::new()?;
-    println!("RayforceDB {} initialized", ray.version());
-    
-    // Create some data
-    let prices: RayVector<i64> = RayVector::from_iter([100, 150, 200, 175, 225]);
-    let symbols: RayVector<RaySymbol> = RayVector::from_iter([
-        RaySymbol::new("AAPL"),
-        RaySymbol::new("GOOGL"),
-        RaySymbol::new("MSFT"),
-        RaySymbol::new("AMZN"),
-        RaySymbol::new("META"),
-    ]);
-    
-    // Create a trades table
-    let trades = ray.eval(r#"
-        (table [symbol price quantity time]
-            (list
-                ['AAPL 'GOOGL 'MSFT 'AAPL 'GOOGL]
-                [150.25 2800.50 300.75 151.00 2805.25]
-                [100 50 200 150 75]
-                [09:30:00 09:31:00 09:32:00 09:33:00 09:34:00]))
+    let rf = Rayforce::new()?;
+    println!("RayforceDB {} initialised", rf.version());
+
+    // Build a trades table from Rust data
+    let trades = RayTable::from_dict([
+        ("symbol",   RayVector::<RaySymbol>::from_iter(["AAPL","GOOGL","MSFT","AAPL","GOOGL"]).as_ray_obj().clone()),
+        ("price",    RayVector::<f64>::from_iter([150.25, 2800.50, 300.75, 151.00, 2805.25]).as_ray_obj().clone()),
+        ("quantity", RayVector::<i64>::from_iter([100i64, 50, 200, 150, 75]).as_ray_obj().clone()),
+    ])?;
+    trades.save("trades")?;
+
+    // Per-symbol totals — query expressed in Rayfall
+    let totals = rf.eval(r#"
+        (select {from:trades by: symbol
+                 total_value:(sum (* price quantity))
+                 trade_count:(count symbol)})
     "#)?;
-    
-    println!("Trades:\n{}", trades);
-    
-    // Calculate total value per symbol
-    let totals = ray.eval(r#"
-        (select {
-            total_value: (sum (* price quantity))
-            trade_count: (count symbol)
-            from: trades
-            by: symbol})
-    "#)?;
-    
     println!("\nTotals by symbol:\n{}", totals);
-    
     Ok(())
 }
 ```
 
-## What's Next?
+## What's next?
 
-- **[API Reference](../api/overview.md)** - Complete API documentation
-- **[Types](../api/types/scalars.md)** - Detailed type system guide
-- **[Queries](../api/queries/select.md)** - Advanced query operations
-- **[Examples](../examples/index.md)** - More code examples
-
+- **[API Reference](../api/overview.md)** — full API documentation.
+- **[Types](../api/types/scalars.md)** — detailed type system guide.
+- **[Examples](../examples/index.md)** — more code samples.

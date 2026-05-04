@@ -1,5 +1,5 @@
 /*
-*   Copyright (c) 2025 Anton Kundenko <singaraiona@gmail.com>
+*   Copyright (c) 2025-2026 Anton Kundenko <singaraiona@gmail.com>
 *   All rights reserved.
 
 *   Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -21,81 +21,77 @@
 *   SOFTWARE.
 */
 
-//! Rayforce type system.
-//!
-//! This module provides Rust types that wrap Rayforce objects,
-//! similar to the Python bindings.
+//! Rust wrappers for Rayforce 2.0 values.
 
 mod scalars;
 mod containers;
 pub mod table;
-mod operators;
 
 pub use scalars::*;
 pub use containers::*;
 pub use table::*;
-pub use operators::*;
 
 use crate::error::{RayforceError, Result};
 use crate::ffi::RayObj;
 use crate::*;
 
-/// Trait for types that can be converted to/from RayObj.
+/// Trait implemented by every typed wrapper around a `RayObj`.
 pub trait RayType: Sized {
-    /// The Rayforce type code for this type.
+    /// The 2.0 type tag for this wrapper (negative for atoms,
+    /// non-negative for vectors / compounds).
     const TYPE_CODE: i8;
-    
-    /// The name of this type in Rayforce.
+
+    /// Human-readable type name for error messages.
     const RAY_NAME: &'static str;
 
-    /// Create from a RayObj pointer.
+    /// Wrap an existing `RayObj`, validating the type tag.
     fn from_ptr(ptr: RayObj) -> Result<Self>;
 
-    /// Get the underlying RayObj.
+    /// Borrow the underlying `RayObj`.
     fn ptr(&self) -> &RayObj;
 
-    /// Get the type code of the underlying object.
     fn type_code(&self) -> i8 {
         self.ptr().type_code()
     }
 }
 
-/// Convert a Rust value to a RayObj.
+/// Convert a Rust value to a `RayObj`.
 pub fn to_ray<T: Into<RayObj>>(value: T) -> RayObj {
     value.into()
 }
 
-/// Try to convert a RayObj to a Rust type.
+/// Try to convert a `RayObj` to a Rust type.
 pub fn from_ray<T: TryFrom<RayObj, Error = RayforceError>>(obj: RayObj) -> Result<T> {
     T::try_from(obj)
 }
 
-/// Get the type name for a type code.
+/// Map a 2.0 type tag to the Rust wrapper name.
 pub fn type_name_for_code(code: i8) -> &'static str {
-    match code.abs() as u32 {
-        TYPE_LIST => "RayList",
-        TYPE_B8 => "RayBool",
-        TYPE_U8 => "RayU8",
-        TYPE_I16 => "RayI16",
-        TYPE_I32 => "RayI32",
-        TYPE_I64 => "RayI64",
-        TYPE_SYMBOL => "RaySymbol",
-        TYPE_DATE => "RayDate",
-        TYPE_TIME => "RayTime",
-        TYPE_TIMESTAMP => "RayTimestamp",
-        TYPE_F64 => "RayF64",
-        TYPE_GUID => "RayGuid",
-        TYPE_C8 => "RayString",
-        TYPE_ENUM => "RayEnum",
-        TYPE_TABLE => "RayTable",
-        TYPE_DICT => "RayDict",
-        TYPE_LAMBDA => "RayLambda",
-        TYPE_UNARY => "RayUnary",
-        TYPE_BINARY => "RayBinary",
-        TYPE_VARY => "RayVariadic",
-        TYPE_NULL => "RayNull",
-        TYPE_ERR => "RayError",
+    let abs = code.unsigned_abs() as u32;
+    match abs {
+        RAY_LIST => "RayList",
+        RAY_BOOL => "RayBool",
+        RAY_U8 => "RayU8",
+        RAY_I16 => "RayI16",
+        RAY_I32 => "RayI32",
+        RAY_I64 => "RayI64",
+        RAY_F32 => "RayF32",
+        RAY_F64 => "RayF64",
+        RAY_DATE => "RayDate",
+        RAY_TIME => "RayTime",
+        RAY_TIMESTAMP => "RayTimestamp",
+        RAY_GUID => "RayGuid",
+        RAY_SYM => "RaySymbol",
+        RAY_STR => "RayString",
+        RAY_INDEX => "RayIndex",
+        RAY_TABLE => "RayTable",
+        RAY_DICT => "RayDict",
+        RAY_LAMBDA => "RayLambda",
+        RAY_UNARY => "RayUnary",
+        RAY_BINARY => "RayBinary",
+        RAY_VARY => "RayVariadic",
+        RAY_NULL => "RayNull",
+        RAY_ERROR => "RayError",
         _ => "Unknown",
     }
 }
-

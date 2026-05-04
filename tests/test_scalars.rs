@@ -25,7 +25,7 @@
 
 mod common;
 
-use rayforce::{B8, C8, F64, I16, I32, I64, RayType, Symbol, U8};
+use rayforce::{B8, F64, I16, I32, I64, RayType, Symbol, U8};
 use serial_test::serial;
 
 #[test]
@@ -179,23 +179,8 @@ fn test_b8_false() {
     assert!(display == "0b" || display == "false" || display == "0");
 }
 
-#[test]
-#[serial]
-fn test_c8_creation() {
-    init_runtime!();
-    let val = C8::new('a');
-    let display = format!("{}", val);
-    assert!(display.contains('a'));
-}
-
-#[test]
-#[serial]
-fn test_c8_special_char() {
-    init_runtime!();
-    let val = C8::new('!');
-    let display = format!("{}", val);
-    assert!(display.contains('!'));
-}
+// `RayChar`/`C8` was removed in the 2.0 port — the engine no longer
+// has a single-char atom type, so the corresponding tests are gone.
 
 #[test]
 #[serial]
