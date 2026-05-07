@@ -36,15 +36,21 @@
 //!
 //! ## What changed from the 1.0 bindings
 //!
-//! - The high-level query builder (`Table::select()` / `update()` / ...)
-//!   has been removed because the C functions backing it
-//!   (`ray_select`/`ray_update`/...) are no longer in the 2.0 public
-//!   API.  Run queries via [`Rayforce::eval`] with a Rayfall source
-//!   string for now.
-//! - The `ipc` module is gone for the same reason: 2.0 does not yet
-//!   expose `ray_hopen`/`ray_hclose`/`ray_write`/`ray_read` as public C
-//!   symbols.  Both are tracked as future work once the upstream
-//!   project re-publishes them.
+//! Most of the surface is back as of rayforce 2.1: the public C API
+//! re-exposes `ray_select` / `ray_update` / `ray_insert` / `ray_upsert`
+//! (under the new "args + count" signature), the `ray_ipc_*` client,
+//! and a `ray_fmt` formatter.  The Rust wrappers track those:
+//!
+//! - [`query`] — a Rayfall-synthesising query builder
+//!   ([`SelectQuery`] / [`UpdateQuery`] / [`InsertQuery`] /
+//!   [`UpsertQuery`]) plus [`Column`] / [`Expression`] /
+//!   [`Operation`] expression nodes.  Renders a Rayfall source string
+//!   and dispatches through [`Rayforce::eval`].
+//! - [`ipc`] — a blocking IPC client ([`Connection`]) wrapping
+//!   `ray_ipc_connect` / `ray_ipc_close` / `ray_ipc_send` /
+//!   `ray_ipc_send_async` / `ray_ipc_send_verbose`.
+//! - The [`RayObj`] `Display` / `Debug` impls now delegate to the
+//!   public `ray_fmt` formatter (mode 1 for Display, mode 0 for Debug).
 
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
@@ -53,10 +59,16 @@
 
 pub mod error;
 pub mod ffi;
+pub mod ipc;
+pub mod query;
 pub mod types;
 
 pub use error::{RayforceError, Result};
 pub use ffi::RayObj;
+pub use ipc::Connection;
+pub use query::{
+    Column, Expression, InsertQuery, Operation, SelectQuery, UpdateQuery, UpsertQuery,
+};
 pub use types::*;
 
 use std::ffi::{CStr, CString};

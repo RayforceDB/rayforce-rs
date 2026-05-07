@@ -141,3 +141,29 @@ fn test_eval_multiple() {
         assert_eq!(v3, 3);
     });
 }
+
+#[test]
+#[serial]
+fn test_display_uses_ray_fmt() {
+    // Display delegates to the engine's ray_fmt(mode=1).  For a numeric
+    // list/vector that means a REPL-style "(...)" rendering — the
+    // 1.0-era "RayObj(type=…, len=…)" placeholder should be gone.
+    with_runtime!(rf, {
+        let v = rf.eval("(list 1 2 3)").unwrap();
+        let s = format!("{v}");
+        assert!(!s.contains("RayObj"), "expected ray_fmt-style output, got {s:?}");
+        assert!(s.contains('1') && s.contains('2') && s.contains('3'),
+                "expected list elements in output, got {s:?}");
+    });
+}
+
+#[test]
+#[serial]
+fn test_debug_uses_ray_fmt_compact() {
+    // Debug uses ray_fmt(mode=0) — the round-trippable form.
+    with_runtime!(rf, {
+        let v = rf.eval("(list 1 2 3)").unwrap();
+        let s = format!("{v:?}");
+        assert!(!s.contains("RayObj"), "expected compact ray_fmt output, got {s:?}");
+    });
+}

@@ -247,6 +247,27 @@ The `code` field is the same short string returned by
 `ray_err_code(err)` ("oom", "type", "range", …); `kind` is the matching
 `ray_err_t` enum value when known.
 
+## Display / Debug
+
+`RayObj` implements both traits by delegating to the engine's public
+formatter (`ray_fmt(obj, mode)`):
+
+- `format!("{val}")` calls `ray_fmt(val, 1)` — REPL-pretty mode
+  (column-aligned tables, parenthesised lists, quoted strings, etc.).
+- `format!("{val:?}")` calls `ray_fmt(val, 0)` — compact /
+  round-trippable form.
+
+Three short-circuit fallbacks come *before* the C call:
+
+| Case | Output |
+|---|---|
+| NULL pointer | `null` (Display) / `RayObj(null)` (Debug) |
+| Global nil singleton | `nil` / `RayObj(nil)` |
+| `RAY_ERROR` object | `RayObj(error[<short-code>])` |
+
+Everything else — atoms, vectors, lists, tables, dicts — flows
+through `ray_fmt` directly.
+
 ## What was removed from the 1.0 FFI
 
 These 1.0 helpers no longer exist (the underlying C symbols are gone
@@ -263,7 +284,10 @@ or moved to internal-only):
   in 2.0.
 - `clone_obj` / `drop_obj` / `rc_obj` — replaced by `ray_retain` /
   `ray_release` (and `RayObj::ref_count()` for inspection).
-- `obj_fmt(obj, verbose)` — 2.0 formatter isn't a public C symbol.
+- `obj_fmt(obj, verbose)` — replaced by the public 2.x `ray_fmt`,
+  with renumbered modes (mode 0 = compact, mode 1 = REPL pretty).
+  See [Display / Debug](#display--debug) above for how the
+  `RayObj` impls use it.
 
 If your code reaches into the FFI for one of these, see the
 [Migrating from 1.0](../../index.md) section in the project README, or

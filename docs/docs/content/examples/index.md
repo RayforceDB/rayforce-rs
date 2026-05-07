@@ -1,15 +1,11 @@
 # Examples
 
-Code examples demonstrating rayforce-rs against rayforce 2.0.
+Code examples demonstrating rayforce-rs against rayforce 2.x.
 
-!!! info "Queries go through `Rayforce::eval`"
-    The Rust query-builder API (`Table::select()` / `update()` /
-    `insert()` / `upsert()`) is **not part of this release** — the C
-    symbols backing it (`ray_select`, `ray_update`, …) were removed
-    from the rayforce 2.0 public API. Run queries by composing
-    Rayfall source strings and feeding them to `Rayforce::eval`. A
-    fluent Rust builder that synthesises Rayfall strings is on the
-    roadmap; see the project README's "Migrating from 1.0" section.
+Queries can be built fluently with
+[`SelectQuery`](../api/query.md) / `UpdateQuery` / `InsertQuery` /
+`UpsertQuery`, or written as Rayfall source and dispatched through
+`Rayforce::eval` — both paths hit the same engine entry point.
 
 ## Basic examples
 
@@ -114,10 +110,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Querying tables
+### Querying tables with the builder
 
 ```rust
-use rayforce::{Rayforce, RayTable, RayVector, RaySymbol, RayType};
+use rayforce::{
+    Rayforce, RayTable, RayVector, RaySymbol, RayType,
+    SelectQuery, Column, Operation,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rf = Rayforce::new()?;
@@ -130,19 +129,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     employees.save("employees")?;     // bind under the name "employees"
 
     // Filter
-    println!("High earners:");
-    println!("{}\n", rf.eval(r#"
-        (select {from:employees name:name salary:salary where:(> salary 70000)})
-    "#)?);
+    let high_earners = SelectQuery::from("employees")
+        .columns(["name", "salary"])
+        .filter(Column::new("salary").gt(70000))
+        .execute(&rf)?;
+    println!("High earners:\n{high_earners}\n");
 
     // Aggregate
-    println!("By department:");
-    println!("{}\n", rf.eval(r#"
-        (select {from:employees by: dept
-                 count:(count name)
-                 avg_salary:(avg salary)
-                 total_salary:(sum salary)})
-    "#)?);
+    let by_dept = SelectQuery::from("employees")
+        .column("count",        Operation::Count(Column::new("name").into_expr()))
+        .column("avg_salary",   Operation::Avg(Column::new("salary").into_expr()))
+        .column("total_salary", Operation::Sum(Column::new("salary").into_expr()))
+        .group_by(Column::new("dept"))
+        .execute(&rf)?;
+    println!("By department:\n{by_dept}\n");
+    Ok(())
+}
+```
+
+### Remote queries via IPC
+
+```rust
+use rayforce::{Connection, SelectQuery, Column};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Connect to a Rayforce server. Auth is optional:
+    //   Connection::connect_with_auth(host, port, Some(user), password).
+    let conn = Connection::connect("127.0.0.1", 5000)?;
+
+    // Build a query locally and ship its rendered Rayfall to the server.
+    let q = SelectQuery::from("trades").filter(Column::new("price").gt(100));
+    let result = conn.execute(&q.to_rayfall())?;
+    println!("{result}");
+
+    // The connection closes automatically when `conn` is dropped.
     Ok(())
 }
 ```

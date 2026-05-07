@@ -282,19 +282,24 @@ impl Drop for RayObj {
 
 // ===== Display / Debug =====
 //
-// rayforce 2.0 doesn't expose `obj_fmt` as a public C API, so we can't
-// reproduce the C engine's pretty-printer here.  First-cut formatting
-// shows the type tag and length; richer rendering is a follow-up.
+// rayforce 2.0 exposes a public formatter via `ray_fmt(obj, mode)`:
+//   mode 0 — compact / round-trippable (used for Debug here).
+//   mode 1 — REPL pretty display (used for Display here).
+// We delegate all rendering to it for vectors / lists / tables / dicts /
+// strings / symbols, falling back to native handling only for NULL,
+// the global nil singleton, and error objects (which `ray_fmt` would
+// happily try to format too — we surface them as `error[<code>]`
+// instead so callers can distinguish from normal payloads).
 
 impl fmt::Display for RayObj {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        format_ray_obj(self, f, false)
+        format_ray_obj(self, f, /*debug=*/ false)
     }
 }
 
 impl fmt::Debug for RayObj {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        format_ray_obj(self, f, true)
+        format_ray_obj(self, f, /*debug=*/ true)
     }
 }
 
@@ -305,7 +310,6 @@ fn format_ray_obj(obj: &RayObj, f: &mut fmt::Formatter<'_>, debug: bool) -> fmt:
     if obj.is_nil() {
         return if debug { write!(f, "RayObj(nil)") } else { write!(f, "nil") };
     }
-    let t = obj.type_code();
     if obj.is_error() {
         let code = unsafe {
             let c = ray_err_code(obj.ptr);
@@ -317,98 +321,48 @@ fn format_ray_obj(obj: &RayObj, f: &mut fmt::Formatter<'_>, debug: bool) -> fmt:
         };
         return write!(f, "RayObj(error[{code}])");
     }
-    // Render atoms with their value; vectors/compounds show type+len.
+    let mode = if debug { 0 } else { 1 };
+    let rendered = match render_with_ray_fmt(obj.ptr, mode) {
+        Some(s) => s,
+        None => {
+            return write!(
+                f,
+                "RayObj(type={}, len={})",
+                obj.type_code(),
+                obj.len()
+            );
+        }
+    };
+    f.write_str(&rendered)
+}
+
+/// Borrow `obj` and call the engine formatter (`ray_fmt`), copying the
+/// resulting `RAY_STR` atom into a Rust `String` and releasing the
+/// engine-side string before returning.  Returns `None` if `ray_fmt`
+/// produced a NULL or error object — callers fall back to a minimal
+/// "type+len" summary in that case.
+fn render_with_ray_fmt(p: *mut ray_t, mode: i32) -> Option<String> {
     unsafe {
-        match t {
-            x if x == -(RAY_BOOL as i8) => write!(f, "{}", read_b8(obj.ptr) != 0),
-            x if x == -(RAY_U8 as i8) => write!(f, "{}", read_u8(obj.ptr)),
-            x if x == -(RAY_I16 as i8) => write!(f, "{}", read_i16(obj.ptr)),
-            x if x == -(RAY_I32 as i8) => write!(f, "{}", read_i32(obj.ptr)),
-            x if x == -(RAY_I64 as i8) => write!(f, "{}", read_i64(obj.ptr)),
-            x if x == -(RAY_F32 as i8) || x == -(RAY_F64 as i8) => {
-                write!(f, "{}", read_f64(obj.ptr))
-            }
-            x if x == -(RAY_SYM as i8) => {
-                let id = read_i64(obj.ptr);
-                let s = ray_sym_str(id);
-                if s.is_null() {
-                    write!(f, "`?")
-                } else {
-                    let label = format_atom_string(s);
-                    write!(f, "`{label}")
-                }
-            }
-            x if x == -(RAY_STR as i8) => {
-                let p = ray_str_ptr(obj.ptr);
-                let n = ray_str_len(obj.ptr);
-                let bytes = std::slice::from_raw_parts(p as *const u8, n);
-                let s = String::from_utf8_lossy(bytes);
-                if debug {
-                    write!(f, "{s:?}")
-                } else {
-                    write!(f, "{s}")
-                }
-            }
-            _ => format_compound(obj, f, debug),
+        // ray_fmt borrows its argument (does not consume), so we pass
+        // the pointer directly without an extra retain.
+        let s = ray_fmt(p, mode);
+        if s.is_null() {
+            return None;
         }
-    }
-}
-
-/// First-pass renderer for vectors / lists / tables / dicts.
-///
-/// 2.0 doesn't expose `obj_fmt`, so we walk the slice ourselves for the
-/// common numeric vector types and fall back to a "type+len" summary
-/// for everything else. Richer formatting is a planned follow-up.
-unsafe fn format_compound(obj: &RayObj, f: &mut fmt::Formatter<'_>, _debug: bool) -> fmt::Result {
-    let t = obj.type_code();
-    let len = obj.len() as usize;
-    let data = read_data_ptr(obj.ptr);
-    match t {
-        x if x == RAY_I64 as i8 => {
-            let s = std::slice::from_raw_parts(data as *const i64, len);
-            write!(f, "{s:?}")
+        if is_error(s) {
+            ray_error_free(s);
+            return None;
         }
-        x if x == RAY_I32 as i8 => {
-            let s = std::slice::from_raw_parts(data as *const i32, len);
-            write!(f, "{s:?}")
+        let pp = ray_str_ptr(s);
+        let n = ray_str_len(s);
+        if pp.is_null() {
+            ray_release(s);
+            return Some(String::new());
         }
-        x if x == RAY_I16 as i8 => {
-            let s = std::slice::from_raw_parts(data as *const i16, len);
-            write!(f, "{s:?}")
-        }
-        x if x == RAY_F64 as i8 => {
-            let s = std::slice::from_raw_parts(data as *const f64, len);
-            write!(f, "{s:?}")
-        }
-        x if x == RAY_F32 as i8 => {
-            let s = std::slice::from_raw_parts(data as *const f32, len);
-            write!(f, "{s:?}")
-        }
-        x if x == RAY_U8 as i8 => {
-            let s = std::slice::from_raw_parts(data, len);
-            write!(f, "{s:?}")
-        }
-        x if x == RAY_BOOL as i8 => {
-            let s = std::slice::from_raw_parts(data, len);
-            let bs: Vec<bool> = s.iter().map(|&b| b != 0).collect();
-            write!(f, "{bs:?}")
-        }
-        _ => write!(f, "RayObj(type={t}, len={len})"),
-    }
-}
-
-unsafe fn format_atom_string(p: *mut ray_t) -> String {
-    if p.is_null() {
-        return String::new();
-    }
-    let t = read_type(p);
-    if t == -(RAY_STR as i8) {
-        let cp = ray_str_ptr(p);
-        let n = ray_str_len(p);
-        let bytes = std::slice::from_raw_parts(cp as *const u8, n);
-        String::from_utf8_lossy(bytes).into_owned()
-    } else {
-        String::new()
+        let bytes = std::slice::from_raw_parts(pp as *const u8, n);
+        let out = String::from_utf8_lossy(bytes).into_owned();
+        ray_release(s);
+        Some(out)
     }
 }
 

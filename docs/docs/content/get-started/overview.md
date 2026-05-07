@@ -51,11 +51,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - :material-database: **Tables & Rayfall**
 
-    Full type system: scalars, vectors, lists, dicts, tables. Run queries by composing Rayfall source and calling `Rayforce::eval` — joins, group-by, and aggregations all live in the engine.
+    Full type system: scalars, vectors, lists, dicts, tables. Build queries fluently with `SelectQuery` / `UpdateQuery` / `InsertQuery` / `UpsertQuery`, or hand-write Rayfall source — both paths run through the same engine.
 
 - :material-shield-check: **Safe ref counting**
 
     Every `RayObj` owns one strong reference. `Clone` calls `ray_retain`; `Drop` calls `ray_release`. The borrow checker keeps lifetimes honest.
+
+- :material-lan: **Remote IPC**
+
+    Talk to a Rayforce server with `Connection::connect(host, port)` (auth optional) and ship Rayfall over the wire via `send` / `send_async` / `send_verbose`.
 
 </div>
 

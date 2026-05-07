@@ -118,6 +118,8 @@ nav:
       - Scalars: content/api/types/scalars.md
       - Containers: content/api/types/containers.md
       - Table: content/api/types/table.md
+    - Query Builder: content/api/query.md
+    - IPC: content/api/ipc.md
     - FFI: content/api/ffi.md
 
   - Examples: content/examples/index.md

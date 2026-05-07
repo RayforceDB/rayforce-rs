@@ -11,6 +11,9 @@ rayforce
 │   ├── scalars   # Scalar atom wrappers (RayI64, RayF64, RaySymbol, ...)
 │   ├── containers# RayVector, RayList, RayString, RayDict
 │   └── table     # RayTable
+├── query         # SelectQuery / UpdateQuery / InsertQuery / UpsertQuery
+│                 # plus Column / Expression / Operation
+├── ipc           # Connection (blocking remote-server client)
 └── error         # RayforceError + ray_err_t mapping
 ```
 
@@ -54,15 +57,23 @@ rayforce
 | `RayDict` | Symbol-keyed dictionary (`RAY_DICT`). |
 | `RayTable` | Columnar table (`RAY_TABLE`). |
 
-### Query types — removed
+### Query types
 
-The 1.0 query-builder types (`RaySelectQuery`, `RayUpdateQuery`,
-`RayInsertQuery`, `RayUpsertQuery`, `RayColumn`, `RayExpression`) are
-**not in this release**. The C symbols backing them are no longer in
-the rayforce 2.0 public API. Run queries by composing Rayfall source
-strings and calling `Rayforce::eval`. See the
-[Quick Start](../get-started/quickstart.md#querying-tables) for the
-recommended workflow.
+The query builder is back. `SelectQuery`, `UpdateQuery`,
+`InsertQuery`, `UpsertQuery` plus the helper types `Column`,
+`Expression`, and `Operation` are exported at the crate root. Each
+builder renders Rayfall source on demand and dispatches through
+`Rayforce::eval`, so the underlying engine call is the same as a
+hand-written `eval` — the builder is the syntax sugar.
+
+See **[Query Builder](query.md)** for the full reference.
+
+### IPC client
+
+`Connection` wraps the public `ray_ipc_*` C symbols
+(connect / close / send / send_async / send_verbose) for talking to
+a remote Rayforce server. See **[IPC](ipc.md)** for the full
+reference.
 
 ## Key traits
 

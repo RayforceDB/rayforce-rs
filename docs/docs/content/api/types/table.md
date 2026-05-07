@@ -3,11 +3,9 @@
 `RayTable` wraps a `RAY_TABLE` value — the engine's columnar data
 structure for analytical workloads.
 
-In rayforce 2.0 the **Rust query builder is gone** (the C symbols
-backing `Table::select()` / `update()` / `insert()` / `upsert()` are
-no longer in the public 2.0 API). Build queries by composing Rayfall
-source and calling [`Rayforce::eval`](../overview.md#evaluating-expressions)
-— see [Querying tables](#querying-tables) below.
+For query construction see the dedicated **[Query Builder](../query.md)**
+page; this page covers the table value itself: building it from Rust
+data, accessing columns, binding under a name, and rendering.
 
 ## Building tables
 
@@ -96,11 +94,17 @@ employees …)`).
 
 ## Querying tables
 
-The high-level builder API was removed in this release. Compose
-queries as Rayfall source and run them through `Rayforce::eval`:
+You have two equivalent options:
+
+1. **Use the [`SelectQuery`](../query.md) / `UpdateQuery` / `InsertQuery` /
+   `UpsertQuery` builders** — fluent, type-safe, renders Rayfall under
+   the hood.
+2. **Compose Rayfall source by hand** and dispatch through
+   `Rayforce::eval`. The engine call is the same either way.
 
 ```rust
-use rayforce::{Rayforce, RayTable, RayVector, RaySymbol, RayType};
+use rayforce::{Rayforce, RayTable, RayVector, RaySymbol, RayType,
+                SelectQuery, Column, Operation};
 
 let rf = Rayforce::new()?;
 
@@ -111,33 +115,27 @@ let trades = RayTable::from_dict([
 ])?;
 trades.save("trades")?;
 
-// SELECT with WHERE
-let result = rf.eval(r#"
-    (select {from:trades sym:sym total:(* price qty) where:(> qty 50)})
-"#)?;
+// SELECT with WHERE — via the builder
+let result = SelectQuery::from("trades")
+    .column("sym",   Column::new("sym"))
+    .column("total", Column::new("price").mul(Column::new("qty")))
+    .filter(Column::new("qty").gt(50))
+    .execute(&rf)?;
 
 // GROUP BY with aggregation
-let summary = rf.eval(r#"
-    (select {from:trades by: sym total_qty:(sum qty) avg_price:(avg price)})
-"#)?;
+let summary = SelectQuery::from("trades")
+    .column("total_qty", Operation::Sum(Column::new("qty").into_expr()))
+    .column("avg_price", Operation::Avg(Column::new("price").into_expr()))
+    .group_by(Column::new("sym"))
+    .execute(&rf)?;
 
 println!("{result}\n{summary}");
 ```
 
-### Updates / inserts / joins
-
-All flow through Rayfall too:
-
-```rust
-// UPDATE
-rf.eval("(update {from:trades qty:(* qty 2) where:(= sym `AAPL)})")?;
-
-// INSERT (Rayfall side; consult the rayforce engine docs for syntax)
-rf.eval("(insert trades (list `META 500.0 75))")?;
-
-// LEFT JOIN
-let joined = rf.eval("(left-join [`sym] trades reference)")?;
-```
+`RayTable::from_name(name)` lets you also start a query through the
+1.0-style instance methods (`tbl.select(name) / .update(name) /
+.insert(name) / .upsert(name, idx)`) — they're shortcuts for the
+`*Query::from(name)` associated functions.
 
 ## Type reference
 
@@ -157,17 +155,25 @@ let joined = rf.eval("(left-join [`sym] trades reference)")?;
 
 ## Display
 
-`RayTable` currently renders schema-only:
+`RayTable` itself renders schema-only via its inherent `Display`:
 
 ```text
 Table[3 rows × 3 cols] ["name", "age", "salary"]
 ```
 
-A richer pretty-printer is on the roadmap once rayforce 2.0 re-exposes
-a stable formatter (the 1.0 `obj_fmt` is now a Rayfall-only builtin).
+For a full data dump, render the underlying `RayObj`:
+
+```rust
+println!("{}", table.as_ray_obj());
+```
+
+That delegates to the engine's [`ray_fmt`](../ffi.md#display--debug)
+formatter, which produces the REPL-style table with column headers
+and row separators.
 
 ## Next steps
 
+- **[Query Builder](../query.md)** — fluent SELECT / UPDATE / INSERT / UPSERT.
 - **[Containers](containers.md)** — `RayVector` / `RayList` / `RayDict`.
 - **[Scalars](scalars.md)** — atom types.
 - **[FFI](../ffi.md)** — low-level helpers (`RayObj`, raw bindings).

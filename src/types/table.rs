@@ -188,6 +188,35 @@ impl RayTable {
     pub fn as_ray_obj(&self) -> &RayObj {
         &self.ptr
     }
+
+    // ----- Query-builder entry points (1.0-compat surface) ------------
+    //
+    // The 1.0 bindings exposed `tbl.select()` / `.update()` / `.insert()`
+    // / `.upsert(idx)` as parameter-less instance methods because
+    // `RayTable` carried a global-name reference internally.  In 2.x
+    // tables are anonymous values; the caller binds them under a name
+    // via [`save`] and the queries reference that name.  These
+    // helpers accept the bound name explicitly so the call site stays
+    // close to the 1.0 ergonomic ("table-driven query") without
+    // hiding state.
+
+    /// Start a SELECT against this table.  Pass the global name you
+    /// bound the table under via [`save`].
+    pub fn select(&self, bound_name: &str) -> crate::query::SelectQuery {
+        crate::query::SelectQuery::from(bound_name.to_string())
+    }
+
+    pub fn update(&self, bound_name: &str) -> crate::query::UpdateQuery {
+        crate::query::UpdateQuery::from(bound_name.to_string())
+    }
+
+    pub fn insert(&self, bound_name: &str) -> crate::query::InsertQuery {
+        crate::query::InsertQuery::into_table(bound_name.to_string())
+    }
+
+    pub fn upsert(&self, bound_name: &str, key_idx: i64) -> crate::query::UpsertQuery {
+        crate::query::UpsertQuery::into_table(bound_name.to_string(), key_idx)
+    }
 }
 
 impl RayType for RayTable {

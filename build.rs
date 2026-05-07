@@ -22,8 +22,13 @@
 */
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::SystemTime;
+
+fn mtime(p: &Path) -> Option<SystemTime> {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok()
+}
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -33,30 +38,55 @@ fn main() {
         env::var("RAYFORCE_GITHUB").unwrap_or_else(|_| "https://github.com/RayforceDB/rayforce.git".to_string());
 
     let lib_path = rayforce_dir.join("librayforce.a");
-    let needs_build = !lib_path.exists();
+    let header_path = rayforce_dir.join("include/rayforce.h");
+    let already_cloned = rayforce_dir.exists() && header_path.exists();
 
-    if needs_build {
+    if !already_cloned {
+        // Fresh clone.
         if rayforce_dir.exists() {
             std::fs::remove_dir_all(&rayforce_dir).ok();
         }
-
         println!("cargo:warning=Cloning rayforce from {}", rayforce_github);
         let status = Command::new("git")
             .args(["clone", &rayforce_github, rayforce_dir.to_str().unwrap()])
             .status()
             .expect("Failed to clone rayforce repository");
-
         if !status.success() {
             panic!("Failed to clone rayforce repository");
         }
+    } else {
+        // Pull the latest upstream so cached build dirs (one per cargo
+        // profile/target) don't fall behind upstream — caching forever
+        // means new public C symbols never reach the binding generator
+        // until the user manually wipes `target/`.  A fast-forward pull
+        // is cheap when there's nothing new to fetch.
+        println!("cargo:warning=Refreshing rayforce checkout in {}", rayforce_dir.display());
+        let status = Command::new("git")
+            .current_dir(&rayforce_dir)
+            .args(["pull", "--ff-only", "--quiet"])
+            .status();
+        match status {
+            Ok(s) if s.success() => {}
+            Ok(_) | Err(_) => {
+                println!("cargo:warning=git pull failed; falling back to existing checkout");
+            }
+        }
+    }
 
+    // Always (re)build the static lib if it's missing or older than the
+    // header.  `make lib` is a no-op when nothing changed.
+    let needs_make = !lib_path.exists()
+        || mtime(&header_path)
+            .zip(mtime(&lib_path))
+            .map(|(h, l)| h > l)
+            .unwrap_or(true);
+    if needs_make {
         println!("cargo:warning=Building rayforce static library...");
         let status = Command::new("make")
             .current_dir(&rayforce_dir)
             .args(["lib"])
             .status()
             .expect("Failed to build rayforce");
-
         if !status.success() {
             panic!("Failed to build rayforce library");
         }
@@ -215,6 +245,19 @@ fn main() {
         .allowlist_function("ray_runtime_create_with_sym_err")
         .allowlist_function("ray_runtime_destroy")
         .allowlist_function("ray_eval_str")
+        // Query (special forms; take a single dict arg via ray_t** args)
+        .allowlist_function("ray_select")
+        .allowlist_function("ray_update")
+        .allowlist_function("ray_insert")
+        .allowlist_function("ray_upsert")
+        // Formatter
+        .allowlist_function("ray_fmt")
+        // IPC client
+        .allowlist_function("ray_ipc_connect")
+        .allowlist_function("ray_ipc_close")
+        .allowlist_function("ray_ipc_send")
+        .allowlist_function("ray_ipc_send_async")
+        .allowlist_function("ray_ipc_send_verbose")
         // Errors
         .allowlist_function("ray_error")
         .allowlist_function("ray_err_code_str")

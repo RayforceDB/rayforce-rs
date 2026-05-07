@@ -172,18 +172,17 @@ println!("{}", employees);
 
 ## Querying tables
 
-!!! info "What happened to `Table::select()` / `update()` / `insert()`?"
-    The high-level Rust query builder is **not part of this release**.
-    The C symbols backing it (`ray_select` / `ray_update` /
-    `ray_insert` / `ray_upsert`) are no longer in the rayforce 2.0
-    public API. Run queries by composing Rayfall source and calling
-    `Rayforce::eval`. A future version may re-introduce a fluent Rust
-    builder that synthesises Rayfall strings.
-
-Bind a table under a name and query it through `eval`:
+Two equivalent paths: the **fluent query builder**
+([`SelectQuery`](../api/query.md) / `UpdateQuery` / `InsertQuery` /
+`UpsertQuery`) or hand-written Rayfall source through
+`Rayforce::eval`. The builder renders Rayfall under the hood, so the
+underlying engine call is identical.
 
 ```rust
-use rayforce::{Rayforce, RayTable, RayVector, RaySymbol, RayType};
+use rayforce::{
+    Rayforce, RayTable, RayVector, RaySymbol, RayType,
+    SelectQuery, Column, Operation,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rf = Rayforce::new()?;
@@ -195,19 +194,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ])?;
     employees.save("employees")?;   // bind under the name "employees"
 
-    // SELECT with WHERE
-    let high_earners = rf.eval(r#"
-        (select {from:employees name:name salary:salary where:(> salary 70000)})
-    "#)?;
+    // SELECT with WHERE — via the builder
+    let high_earners = SelectQuery::from("employees")
+        .columns(["name", "salary"])
+        .filter(Column::new("salary").gt(70000))
+        .execute(&rf)?;
     println!("high earners:\n{}", high_earners);
 
     // GROUP BY with aggregation
-    let by_dept = rf.eval(r#"
-        (select {from:employees by: dept avg_salary:(avg salary) headcount:(count name)})
-    "#)?;
+    let by_dept = SelectQuery::from("employees")
+        .column("avg_salary", Operation::Avg(Column::new("salary").into_expr()))
+        .column("headcount", Operation::Count(Column::new("name").into_expr()))
+        .group_by(Column::new("dept"))
+        .execute(&rf)?;
     println!("by department:\n{}", by_dept);
     Ok(())
 }
+```
+
+If you prefer to write Rayfall directly, the same queries through
+`eval`:
+
+```rust
+let high_earners = rf.eval(
+    "(select {name: name salary: salary from: employees where: (> salary 70000)})"
+)?;
 ```
 
 `RayTable::save(name)` is backed by `ray_env_set(ray_sym_intern(name),

@@ -109,7 +109,7 @@ The ultra-fast columnar database, now with Rust's safety guarantees. Zero-cost a
 <button class="code-tab active" data-tab="basic">Basic Types</button>
 <button class="code-tab" data-tab="vectors">Vectors</button>
 <button class="code-tab" data-tab="tables">Tables</button>
-<button class="code-tab" data-tab="queries">Eval</button>
+<button class="code-tab" data-tab="queries">Queries</button>
 </div>
 
 <div class="code-panels">
@@ -199,29 +199,29 @@ The ultra-fast columnar database, now with Rust's safety guarantees. Zero-cost a
 
 <div class="code-panel" data-panel="queries">
 <div class="code-block">
-<pre><code><span class="code-keyword">use</span> <span class="code-type">rayforce</span>::{<span class="code-type">Rayforce</span>, <span class="code-type">RayTable</span>};
+<pre><code><span class="code-keyword">use</span> <span class="code-type">rayforce</span>::{<span class="code-type">Rayforce</span>, <span class="code-type">SelectQuery</span>, <span class="code-type">Column</span>, <span class="code-type">Operation</span>};
 
 <span class="code-keyword">fn</span> <span class="code-func">main</span>() -> <span class="code-type">Result</span>&lt;(), <span class="code-type">Box</span>&lt;<span class="code-keyword">dyn</span> <span class="code-type">std</span>::<span class="code-type">error</span>::<span class="code-type">Error</span>&gt;&gt; {
     <span class="code-keyword">let</span> rf = <span class="code-type">Rayforce</span>::<span class="code-func">new</span>()?;
 
-    <span class="code-comment">// Build a table in Rayfall and bind it under a name in the global env.</span>
+    <span class="code-comment">// Bind a table under a name in the global env.</span>
     rf.<span class="code-func">eval</span>(<span class="code-string">r#"(set t (table [name dept salary]
-        (list [`Alice `Bob `Charlie `David]
-              [`IT `HR `IT `Sales]
+        (list [Alice Bob Charlie David]
+              [IT HR IT Sales]
               [75000 65000 85000 70000])))"#</span>)?;
-    <span class="code-keyword">let</span> employees = <span class="code-type">RayTable</span>::<span class="code-func">from_name</span>(<span class="code-string">"t"</span>)?;
-    <span class="code-macro">println!</span>(<span class="code-string">"loaded {} rows"</span>, employees.<span class="code-func">len</span>()?);
-    
-    <span class="code-comment">// Run queries by composing Rayfall source and calling rf.eval.</span>
-    <span class="code-comment">// In 2.0 the native Rust query builder is gone; queries flow through eval.</span>
-    <span class="code-keyword">let</span> high_earners = rf.<span class="code-func">eval</span>(
-        <span class="code-string">"(select {from:t name:name salary:salary where:(> salary 70000)})"</span>
-    )?;
-    
-    <span class="code-keyword">let</span> by_dept = rf.<span class="code-func">eval</span>(
-        <span class="code-string">"(select {from:t by: dept avg_salary:(avg salary) count:(count name)})"</span>
-    )?;
-    
+
+    <span class="code-comment">// Fluent query builder — renders Rayfall under the hood.</span>
+    <span class="code-keyword">let</span> high_earners = <span class="code-type">SelectQuery</span>::<span class="code-func">from</span>(<span class="code-string">"t"</span>)
+        .<span class="code-func">columns</span>([<span class="code-string">"name"</span>, <span class="code-string">"salary"</span>])
+        .<span class="code-func">filter</span>(<span class="code-type">Column</span>::<span class="code-func">new</span>(<span class="code-string">"salary"</span>).<span class="code-func">gt</span>(<span class="code-number">70000</span>))
+        .<span class="code-func">execute</span>(&amp;rf)?;
+
+    <span class="code-keyword">let</span> by_dept = <span class="code-type">SelectQuery</span>::<span class="code-func">from</span>(<span class="code-string">"t"</span>)
+        .<span class="code-func">column</span>(<span class="code-string">"avg_salary"</span>, <span class="code-type">Operation</span>::<span class="code-type">Avg</span>(<span class="code-type">Column</span>::<span class="code-func">new</span>(<span class="code-string">"salary"</span>).<span class="code-func">into_expr</span>()))
+        .<span class="code-func">column</span>(<span class="code-string">"count"</span>,      <span class="code-type">Operation</span>::<span class="code-type">Count</span>(<span class="code-type">Column</span>::<span class="code-func">new</span>(<span class="code-string">"name"</span>).<span class="code-func">into_expr</span>()))
+        .<span class="code-func">group_by</span>(<span class="code-type">Column</span>::<span class="code-func">new</span>(<span class="code-string">"dept"</span>))
+        .<span class="code-func">execute</span>(&amp;rf)?;
+
     <span class="code-macro">println!</span>(<span class="code-string">"high earners:\n{}"</span>, high_earners);
     <span class="code-macro">println!</span>(<span class="code-string">"by dept:\n{}"</span>, by_dept);
     <span class="code-type">Ok</span>(())
