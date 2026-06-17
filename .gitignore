@@ -1,5 +1,16 @@
-target/
+# Rust
+/target/
+**/*.rs.bk
+
+# Cargo.lock is not committed (this is primarily a library workspace)
+Cargo.lock
+
+# MkDocs build output
+/docs/site/
+
+# macOS
+.DS_Store
+
+# Logs / local state
 *.log
-*.lock
 .rayhist.dat
-docs/site

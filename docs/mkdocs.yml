@@ -1,5 +1,5 @@
-site_name: RayforceDB Rust
-site_description: Safe, ergonomic Rust bindings for RayforceDB - the ultra-fast columnar database
+site_name: Rayforce-RS
+site_description: Convenient, high-performance Rust bindings for RayforceDB v2
 repo_url: https://github.com/RayforceDB/rayforce-rs
 repo_name: GitHub
 
@@ -7,13 +7,15 @@ theme:
   name: material
   custom_dir: overrides
   icon:
-    repo: fontawesome/brands/github 
-  logo: images/logo_light_full.svg
-  favicon: images/favicon.svg
+    repo: fontawesome/brands/github
+  favicon: assets/favicon.svg
   features:
+    - content.action.edit
+    - content.action.view
     - content.code.annotate
     - content.code.copy
     - content.tooltips
+    - navigation.expand
     - navigation.indexes
     - navigation.tabs
     - navigation.top
@@ -22,49 +24,38 @@ theme:
     - search.suggest
 
   palette:
-    # Light mode
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: custom
-      accent: deep-orange
+    - scheme: slate
+      primary: deep orange
+      accent: deep orange
       toggle:
         icon: material/brightness-7
-        name: Switch to dark mode
+        name: Switch to light mode
 
-    # Dark mode    
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: custom
-      accent: deep-orange
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep orange
+      accent: deep orange
       toggle:
         icon: material/brightness-4
-        name: Switch to light mode
+        name: Switch to dark mode
   font:
-    text: Inter
+    text: Outfit
     code: JetBrains Mono
-
-  icon:
-    logo: material/lumx
-
+  logo: assets/logo_light_full.svg
 
 extra:
-    social:
-      - icon: fontawesome/brands/github 
-        link: https://github.com/RayforceDB/rayforce-rs
-      - icon: fontawesome/brands/rust
-        link: https://crates.io/crates/rayforce
-      - icon: fontawesome/brands/x-twitter
-        link: https://x.com/RayforceDB
-      - icon: fontawesome/brands/reddit
-        link: https://www.reddit.com/r/rayforcedb/
-      - icon: simple/zulip
-        link: https://rayforcedb.zulipchat.com/join/l33sichu4vp7nf77hgdul4om/
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/RayforceDB/rayforce-rs
+    - icon: fontawesome/brands/rust
+      link: https://crates.io/crates/rayforce
 
-copyright: Copyright &copy; 2025 RayforceDB
+copyright: Copyright &copy; 2026 RayforceDB
 
 plugins:
+  - offline
   - search:
-      separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+      separator: '[\s​\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
 
 markdown_extensions:
   - pymdownx.highlight:
@@ -81,18 +72,10 @@ markdown_extensions:
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.tasklist:
       custom_checkbox: true
-  - pymdownx.arithmatex:
-      generic: true
   - toc:
       permalink: true
-  - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
-  - pymdownx.details
+  - pymdownx.superfences
   - pymdownx.tilde
   - attr_list
   - md_in_html
@@ -101,31 +84,50 @@ markdown_extensions:
   - footnotes
 
 extra_css:
+  - https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap
   - css/custom.css
+  - css/hero.css
 
-# Page tree
 nav:
   - Home: index.md
-
   - Get Started:
-    - Overview: content/get-started/overview.md
-    - Installation: content/get-started/installation.md
-    - Quick Start: content/get-started/quickstart.md
-
-  - API Reference:
-    - Overview: content/api/overview.md
-    - Types:
-      - Scalars: content/api/types/scalars.md
-      - Containers: content/api/types/containers.md
-      - Table: content/api/types/table.md
-    - Queries:
-      - Select: content/api/queries/select.md
-      - Update: content/api/queries/update.md
-      - Insert: content/api/queries/insert.md
-      - Upsert: content/api/queries/upsert.md
-      - Joins: content/api/queries/joins.md
-    - FFI: content/api/ffi.md
-    - IPC: content/api/ipc.md
-
-  - Examples: content/examples/index.md
-
+      - Overview: content/get-started/overview.md
+      - Installation: content/get-started/installation.md
+      - Technical Details: content/get-started/technical-details.md
+  - Documentation:
+      - Overview: content/documentation/overview.md
+      - Data Types:
+          - Overview: content/documentation/data-types/overview.md
+          - Values & Conversions: content/documentation/data-types/values.md
+          - Integers: content/documentation/data-types/integers.md
+          - Float: content/documentation/data-types/float.md
+          - Boolean: content/documentation/data-types/boolean.md
+          - Symbol: content/documentation/data-types/symbol.md
+          - String: content/documentation/data-types/string.md
+          - Temporal: content/documentation/data-types/temporal.md
+          - GUID: content/documentation/data-types/guid.md
+          - Vector: content/documentation/data-types/vector.md
+          - List: content/documentation/data-types/list.md
+          - Dict: content/documentation/data-types/dict.md
+      - Table:
+          - Overview: content/documentation/table/overview.md
+          - Create: content/documentation/table/create.md
+          - Access Values: content/documentation/table/access-values.md
+          - Transform: content/documentation/table/transform.md
+          - Save and Fetch: content/documentation/table/save-and-fetch.md
+          - Splayed and Parted: content/documentation/table/splayed-and-parted.md
+      - Query Guide:
+          - Overview: content/documentation/query-guide/overview.md
+          - Expressions: content/documentation/query-guide/expressions.md
+          - Select: content/documentation/query-guide/select.md
+          - Where: content/documentation/query-guide/where.md
+          - Group By: content/documentation/query-guide/group-by.md
+          - Order By: content/documentation/query-guide/order-by.md
+          - Update: content/documentation/query-guide/update.md
+          - Insert: content/documentation/query-guide/insert.md
+          - Upsert: content/documentation/query-guide/upsert.md
+          - Joins: content/documentation/query-guide/joins.md
+      - IPC: content/documentation/ipc.md
+      - Serialization: content/documentation/serialization.md
+  - Changelog: content/CHANGELOG.md
+  - License: content/license.md

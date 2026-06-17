@@ -1,239 +1,112 @@
-# rayforce-rs
+<table style="border-collapse:collapse;border:0;">
+  <tr>
+    <td style="border:0;padding:0;">
+      <a href="https://rs.rayforcedb.com">
+        <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/RayforceDB/rayforce-rs/refs/heads/master/docs/docs/assets/logo_light_full.svg">
+            <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/RayforceDB/rayforce-rs/refs/heads/master/docs/docs/assets/logo_dark_full.svg">
+            <img src="https://raw.githubusercontent.com/RayforceDB/rayforce-rs/refs/heads/master/docs/docs/assets/logo_dark_full.svg" width="200">
+        </picture>
+      </a>
+    </td>
+    <td style="border:0;padding:0;">
+      <h1>High-Performance, Zero-Copy Rust bindings for <a href="https://core.rayforcedb.com"><picture>
+            <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/RayforceDB/rayforce-rs/refs/heads/master/docs/docs/assets/logo_light_full.svg">
+            <img src="https://raw.githubusercontent.com/RayforceDB/rayforce-rs/refs/heads/master/docs/docs/assets/logo_dark_full.svg" alt="RayforceDB" height="40" style="vertical-align: bottom;">
+        </picture></a></h1>
+    </td>
+  </tr>
+</table>
 
-Rust bindings for [RayforceDB](https://github.com/RayforceDB/rayforce) - a high-performance time-series database.
+[![CI](https://github.com/RayforceDB/rayforce-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/RayforceDB/rayforce-rs/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/rayforce.svg)](https://crates.io/crates/rayforce)
+[![Docs.rs](https://img.shields.io/docsrs/rayforce)](https://docs.rs/rayforce)
+[![License: MIT](https://img.shields.io/badge/License-MIT-e5601f.svg)](LICENCE)
+![Rust Version](https://img.shields.io/badge/rustc-1.74%2B-orange.svg)
+
+Rust bindings for [RayforceDB](https://core.rayforcedb.com), a high-performance columnar
+database designed for analytics and data operations. The core is written in pure C with
+minimal overhead — combining columnar storage with SIMD vectorization for lightning-fast
+analytics on time-series and big-data workloads.
+
+The bindings call the core's C API **directly** (no marshalling shim), so reads are
+zero-copy where it counts: a numeric column is exposed as a `&[T]` slice rather than
+copied element by element.
+
+**Full Documentation:** https://rs.rayforcedb.com/
 
 ## Features
 
-- **Complete Type System**: Full support for all Rayforce types including scalars (I64, F64, Symbol, Date, Time, Timestamp, GUID), containers (List, Vector, Dict), and Table.
-- **Query Builder**: Fluent API for building SELECT, UPDATE, INSERT, and UPSERT queries.
-- **Expression Builder**: Type-safe expression construction for WHERE clauses and computed columns.
-- **IPC Support**: Connect to remote Rayforce servers.
-- **Automatic Build**: Automatically clones and builds the Rayforce C library from source.
-
-## Installation
-
-Add to your `Cargo.toml`:
-
-```toml
-[dependencies]
-rayforce-rs = "0.1"
-```
-
-### Build Requirements
-
-- **Clang/LLVM**: Required for bindgen
-- **Git**: For cloning Rayforce sources
-- **Make**: For building the C library
-- **C compiler** (gcc or clang)
-
-On Ubuntu/Debian:
-```bash
-sudo apt install llvm-dev libclang-dev clang git build-essential
-```
-
-On macOS:
-```bash
-xcode-select --install
-brew install llvm
-```
+- **Fluent API** — chainable, intuitive query builders that read like the operation; real
+  operator overloads for arithmetic, methods for comparisons.
+- **Zero-Copy & High Performance** — build a column in a single `memcpy`, read it back as a
+  borrow; minimal overhead between Rust and the RayforceDB runtime via the C API.
+- **Type-Safe** — a full value model (atoms, vectors, lists, dicts, tables) with
+  `ToValue`/`FromValue` conversions and optional `chrono` temporals.
+- **Lightweight** — the core is less than a 1 MB footprint.
+- **Batteries included** — CSV & splayed I/O, binary serialization, and a TCP/IPC client.
 
 ## Quick Start
 
 ```rust
-use rayforce::{Rayforce, Table, Column, Vector, Symbol, I64, Result};
+use rayforce::{col, Runtime, Table, Value};
 
-fn main() -> Result<()> {
-    // Initialize the runtime
-    let rf = Rayforce::new()?;
-    
-    // Create a table
-    let table = Table::from_dict([
-        ("id", Vector::<i64>::from_iter([1i64, 2, 3]).as_ray_obj().clone()),
-        ("name", Vector::<Symbol>::from_iter(["Alice", "Bob", "Charlie"]).ptr().clone()),
-        ("score", Vector::<f64>::from_iter([95.5, 87.3, 92.1]).as_ray_obj().clone()),
-    ])?;
-    
-    println!("Table:\n{}", table);
-    
-    // Query with WHERE clause
-    let result = table
-        .select()
-        .columns(&["id", "name"])
-        .where_cond(Column::new("score").gt(90.0f64))
-        .execute()?;
-    
-    println!("High scorers:\n{}", result);
-    
-    // Evaluate Rayforce expressions
-    let sum = rf.eval("sum(1 2 3 4 5)")?;
-    println!("Sum: {}", sum);
-    
-    Ok(())
-}
-```
+let _rt = Runtime::new()?;                       // one live runtime per process
 
-## Type System
+let quotes = Table::new(
+    &["symbol", "bid", "ask"],
+    &[
+        Value::sym_vec(&["AAPL", "AAPL", "AAPL", "GOOG", "GOOG", "GOOG"]),
+        Value::vec(&[100.0f64, 101.0, 102.0, 200.0, 201.0, 202.0]),
+        Value::vec(&[110.0f64, 111.0, 112.0, 210.0, 211.0, 212.0]),
+    ],
+)?;
 
-### Scalar Types
-
-```rust
-use rayforce::{I64, F64, B8, Symbol, Date, Time, Timestamp, GUID};
-use chrono::{NaiveDate, NaiveTime, NaiveDateTime};
-use uuid::Uuid;
-
-let i = I64::new(42);
-let f = F64::new(3.14);
-let b = B8::new(true);
-let sym = Symbol::new("hello");
-
-// Temporal types
-let date = Date::from_naive_date(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
-let time = Time::from_ms(43200000); // 12:00:00
-let ts = Timestamp::from_nanos(1705312800000000000);
-
-// GUID
-let guid = GUID::random();
-let guid2 = GUID::parse("550e8400-e29b-41d4-a716-446655440000")?;
-```
-
-### Container Types
-
-```rust
-use rayforce::{List, Vector, Dict, Symbol};
-
-// Vectors (homogeneous)
-let ints: Vector<i64> = Vector::from_iter([1i64, 2, 3]);
-let floats: Vector<f64> = Vector::from_iter([1.1, 2.2, 3.3]);
-let symbols = Vector::<Symbol>::from_iter(["a", "b", "c"]);
-
-// Lists (heterogeneous)
-let mut list = List::new();
-list.push(I64::new(42).ptr().clone());
-list.push(RayString::new("hello").ptr().clone());
-
-// Dictionaries
-let dict = Dict::from_pairs([
-    ("name", RayString::new("Alice").ptr().clone()),
-    ("age", I64::new(30).ptr().clone()),
-])?;
-```
-
-### Tables
-
-```rust
-use rayforce::{Table, Column, Vector, Symbol};
-
-// Create from dictionary
-let table = Table::from_dict([
-    ("col1", Vector::<i64>::from_iter([1, 2, 3]).as_ray_obj().clone()),
-    ("col2", Vector::<Symbol>::from_iter(["a", "b", "c"]).ptr().clone()),
-])?;
-
-// Reference a named table
-let table_ref = Table::from_name("my_table");
-
-// Access columns
-let cols = table.columns()?;
-let row_count = table.len()?;
-```
-
-## Query Builder
-
-### SELECT
-
-```rust
-let result = table
+let result = quotes
     .select()
-    .columns(&["id", "name", "score"])
-    .where_cond(Column::new("score").gt(80.0))
-    .group_by(&["department"])
+    .agg("max_bid", col("bid").max())
+    .agg("min_bid", col("bid").min())
+    .agg("avg_ask", col("ask").avg())
+    .agg("count",   col("bid").count())
+    .filter(col("bid").ge(110.0).and(col("ask").gt(100.0)))
+    .by("symbol")
     .execute()?;
+
+println!("{result}");
 ```
 
-### UPDATE
-
-```rust
-let updated = table
-    .update()
-    .set("score", Column::new("score").sum())
-    .where_cond(Column::new("active").eq(true))
-    .execute()?;
+```text
+┌────────┬─────────┬─────────┬─────────┬───────┐
+│ symbol │ max_bid │ min_bid │ avg_ask │ count │
+│  SYM   │   F64   │   F64   │   F64   │  I64  │
+├────────┼─────────┼─────────┼─────────┼───────┤
+│ GOOG   │ 202.0   │ 200.0   │ 211.0   │ 3     │
+├────────┴─────────┴─────────┴─────────┴───────┤
+│ 1 rows (1 shown) 5 columns (5 shown)         │
+└──────────────────────────────────────────────┘
 ```
 
-### INSERT
+## Installation
 
-```rust
-let inserted = table
-    .insert()
-    .values([
-        ("id", I64::new(4).ptr().clone()),
-        ("name", Symbol::new("Dave").ptr().clone()),
-    ])
-    .execute()?;
+The crate links a local RayforceDB core checkout. Point `RAYFORCE_SRC` at it (defaults to
+`~/rayforce`); the build script compiles and statically links `librayforce.a`.
+
+```toml
+# Cargo.toml
+[dependencies]
+rayforce = { git = "https://github.com/RayforceDB/rayforce-rs" }
 ```
 
-### UPSERT
-
-```rust
-let upserted = table
-    .upsert(1)  // match by first 1 column(s)
-    .values([
-        ("id", I64::new(1).ptr().clone()),
-        ("score", F64::new(99.9).ptr().clone()),
-    ])
-    .execute()?;
+```sh
+export RAYFORCE_SRC=/path/to/rayforce      # default: ~/rayforce
+cargo build
+cargo test
 ```
 
-## Joins
+Requirements: a C toolchain (`make`, `clang`) and `libclang` for `bindgen` (on macOS,
+`LIBCLANG_PATH` may be needed — see `.cargo/config.toml`). The `chrono` feature is on by
+default for date/time/timestamp conversions.
 
-```rust
-// Inner join
-let result = table1.inner_join(&table2, &["key_column"])?;
+---
 
-// Left join
-let result = table1.left_join(&table2, &["key_column"])?;
-```
-
-## IPC (Remote Connection)
-
-```rust
-use rayforce::ipc::hopen;
-
-let conn = hopen("localhost", 5000)?;
-let result = conn.execute("select * from trades")?;
-conn.close()?;
-```
-
-## Expression Builder
-
-```rust
-use rayforce::Column;
-
-let col = Column::new("price");
-
-// Comparisons
-let expr1 = col.gt(100.0);      // price > 100
-let expr2 = col.le(200.0);      // price <= 200
-let expr3 = col.eq(150.0);      // price == 150
-
-// Combine with AND/OR
-let combined = col.gt(100.0).and(col.lt(200.0));
-
-// Aggregations
-let sum_expr = col.sum();
-let avg_expr = col.avg();
-let count_expr = col.count();
-```
-
-## Environment Variables
-
-- `RAYFORCE_GITHUB`: Override the Rayforce repository URL (default: `https://github.com/RayforceDB/rayforce.git`)
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
-
-## See Also
-
-- [RayforceDB](https://github.com/RayforceDB/rayforce) - The Rayforce database
-- [rayforce-py](https://github.com/RayforceDB/rayforce-py) - Official Python bindings
+**Built with ❤️ for high-performance data processing | <a href="https://rs.rayforcedb.com/content/license.html">MIT Licensed</a> | RayforceDB**

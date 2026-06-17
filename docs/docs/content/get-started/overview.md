@@ -1,76 +1,93 @@
-# Welcome to RayforceDB Rust!
+# :material-human-greeting-variant: Introduction to Rayforce-RS
 
-<div class="rust-badge">
-    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="16" r="5" fill="currentColor"/></svg>
-    Built for Rust
-</div>
-
-**rayforce-rs** provides safe, ergonomic Rust bindings for [RayforceDB](https://rayforcedb.com) - the ultra-fast columnar database.
-
-## Why Rust?
-
-RayforceDB is written in pure C for maximum performance. **rayforce-rs** brings that performance to Rust with:
-
-- **Memory Safety** - No null pointers, no buffer overflows, no data races
-- **Zero-Cost Abstractions** - Idiomatic Rust API that compiles to efficient C calls
-- **Fearless Concurrency** - Share data safely across threads
-- **Type Safety** - Catch errors at compile time, not runtime
-
-## Quick Overview
+`rayforce` provides convenient, high-performance Rust bindings for
+[RayforceDB](https://github.com/RayforceDB/rayforce) v2 — a lightweight,
+SIMD-vectorized columnar database. It lets you build values, tables, and queries
+with idiomatic Rust and run them inside the RayforceDB runtime with little-to-no
+practical overhead.
 
 ```rust
-use rayforce::{Rayforce, RayI64, RayVector, RayTable};
+use rayforce::{col, sum, Runtime, Table, Value};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize RayforceDB runtime
-    let ray = Rayforce::new()?;
-    
-    // Create typed values
-    let price = RayI64::from_value(100);
-    let prices: RayVector<i64> = RayVector::from_iter([100, 200, 300]);
-    
-    // Evaluate expressions
-    let result = ray.eval("(+ 1 2 3)")?;
-    println!("1 + 2 + 3 = {}", result);
-    
-    Ok(())
-}
+let _rt = Runtime::new()?;                        // one live runtime per process
+
+let t = Table::new(
+    &["sym", "price", "size"],
+    &[
+        Value::sym_vec(&["AAPL", "MSFT", "AAPL", "GOOG"]),
+        Value::vec(&[100.0f64, 200.0, 110.0, 300.0]),
+        Value::vec(&[10i64, 20, 30, 40]),
+    ],
+)?;
+
+// select total:sum size by sym from t where price > 150.0
+let totals = t
+    .select()
+    .agg("total", sum(col("size")))
+    .filter(col("price").gt(150.0))
+    .by("sym")
+    .execute()?;
+
+println!("{totals}");
+# Ok::<(), rayforce::RayError>(())
 ```
 
-## Feature Highlights
+## :material-flash: Direct FFI, no shim
 
-<div class="grid cards" markdown>
+The bindings link the RayforceDB core (`librayforce.a`) directly and call its C
+API natively. There is no separate process, no IPC shim, and no serialization
+between your Rust code and the engine for in-process work.
 
-- :material-lightning-bolt: **Blazing Fast**
-  
-    Sub-millisecond query performance on analytical workloads through columnar storage and vectorized operations.
+!!! note "Zero-copy where it counts"
+    A `Value` is a thin, reference-counted handle onto memory owned by the
+    engine. Building a numeric column is a single `memcpy`
+    (`Value::vec(&[T])`), and reading it back is zero-copy: a numeric column is
+    exposed as a `&[T]` slice via `value.as_slice::<T>()` rather than copied
+    element-by-element. Cloning a `Value` only bumps a refcount.
 
-- :fontawesome-brands-rust: **Rust Idiomatic**
-  
-    Familiar patterns: `From`/`Into` traits, iterators, `Result` error handling, and smart pointers.
+The result is a thin, ergonomic safe layer over a fast vectorized engine —
+without the cost of crossing a process boundary.
 
-- :material-database: **Full API Coverage**
-  
-    All RayforceDB types: scalars, vectors, lists, dicts, tables. All queries: select, update, insert, upsert, joins.
+## :material-run: 30-second quickstart
 
-- :material-connection: **IPC Support**
-  
-    Connect to remote RayforceDB instances with async-ready networking.
+Every program starts by creating a single live [`Runtime`](installation.md). It
+is an RAII guard: keep it alive for as long as you touch any `Value`.
 
-</div>
+```rust
+use rayforce::{col, Runtime, Table, Value};
 
-## What's Next?
+let _rt = Runtime::new()?;
 
-1. **[Installation](installation.md)** - Add rayforce-rs to your project
-2. **[Quick Start](quickstart.md)** - Build your first application
-3. **[API Reference](../api/overview.md)** - Explore the full API
+// Build a table from typed columns.
+let trades = Table::new(
+    &["sym", "price", "size"],
+    &[
+        Value::sym_vec(&["AAPL", "MSFT", "AAPL"]),
+        Value::vec(&[100.0f64, 200.0, 110.0]),
+        Value::vec(&[10i64, 20, 30]),
+    ],
+)?;
 
-## System Requirements
+// Filter and project with the fluent query DSL.
+let big = trades
+    .select()
+    .filter(col("size").gt(15i64))
+    .execute()?;
 
-- **Rust**: 1.70 or later
-- **OS**: Linux, macOS (Windows support coming soon)
-- **Build Tools**: C compiler (gcc/clang) for building the RayforceDB C library
+println!("{big}");
+# Ok::<(), rayforce::RayError>(())
+```
 
-!!! tip "Need Help?"
-    Join the [RayforceDB Zulip](https://rayforcedb.zulipchat.com) community or open an issue on [GitHub](https://github.com/RayforceDB/rayforce-rs).
+!!! tip "Integer literals default to `i32`"
+    A bare literal like `42` is `i32` in Rust. Annotate the element type when you
+    build non-`i32` vectors or atoms — `Value::vec(&[1i64, 2, 3])`,
+    `col("size").gt(15i64)`.
 
+## :material-arrow-right: Next steps
+
+- [:octicons-package-16: Installation](installation.md) — prerequisites and how to
+  build against a local RayforceDB core.
+- [:material-cog-outline: Technical Details](technical-details.md) — the two-crate
+  workspace, the `Value` RAII model, and the single-thread runtime.
+- [:material-file-document: Documentation](../documentation/overview.md) — data
+  types, tables, the query guide, IPC, and serialization.

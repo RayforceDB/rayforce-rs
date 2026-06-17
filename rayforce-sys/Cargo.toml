@@ -1,0 +1,17 @@
+[package]
+name = "rayforce-sys"
+description = "Raw FFI bindings to the RayforceDB v2 core (librayforce)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+links = "rayforce"
+build = "build.rs"
+
+[build-dependencies]
+bindgen = "0.70"
+
+[lib]
+doctest = false

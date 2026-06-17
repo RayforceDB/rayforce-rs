@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RAYFORCE_SRC: ${{ github.workspace }}/rayforce-core
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout bindings
+        uses: actions/checkout@v4
+
+      - name: Checkout RayforceDB core
+        uses: actions/checkout@v4
+        with:
+          repository: RayforceDB/rayforce
+          path: rayforce-core
+
+      - name: Install toolchain deps
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev build-essential
+
+      # The repo's .cargo/config.toml sets a macOS LIBCLANG_PATH for local dev.
+      # On Linux that path is invalid, so point bindgen at the apt libclang here
+      # — an env var set in the job takes precedence over the config default.
+      - name: Locate libclang
+        run: |
+          LIB="$(find /usr/lib -name 'libclang*.so*' 2>/dev/null | head -1)"
+          if [ -z "$LIB" ]; then echo "libclang not found" >&2; exit 1; fi
+          echo "LIBCLANG_PATH=$(dirname "$LIB")" >> "$GITHUB_ENV"
+          echo "Using LIBCLANG_PATH=$(dirname "$LIB")"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace

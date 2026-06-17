@@ -1,0 +1,91 @@
+//! IPC client for talking to a RayforceDB server over TCP.
+//!
+//! [`TcpClient`] wraps the core's blocking client API (`ray_ipc_connect` /
+//! `ray_ipc_send` / `ray_ipc_send_async` / `ray_ipc_close`). Connection handles
+//! are process-local; the client is `!Send`/`!Sync` like the rest of the crate.
+
+use crate::error::{check, materialize, RayError, Result};
+use crate::value::Value;
+use rayforce_sys as sys;
+use std::ffi::CString;
+use std::marker::PhantomData;
+
+/// Ensure the runtime has a poll object (required before connecting).
+unsafe fn ensure_poll() {
+    if sys::ray_runtime_get_poll().is_null() {
+        let p = sys::ray_poll_create();
+        sys::ray_runtime_set_poll(p);
+    }
+}
+
+/// A synchronous IPC connection to a RayforceDB server.
+pub struct TcpClient {
+    handle: i64,
+    _not_send: PhantomData<*mut ()>,
+}
+
+impl TcpClient {
+    /// Connect to `host:port`, optionally authenticating. Requires a live
+    /// [`crate::Runtime`].
+    pub fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<TcpClient> {
+        let host_c = CString::new(host).map_err(|_| RayError::binding("host contains NUL"))?;
+        let user_c = CString::new(user).map_err(|_| RayError::binding("user contains NUL"))?;
+        let pass_c =
+            CString::new(password).map_err(|_| RayError::binding("password contains NUL"))?;
+        unsafe {
+            ensure_poll();
+            let handle =
+                sys::ray_ipc_connect(host_c.as_ptr(), port, user_c.as_ptr(), pass_c.as_ptr());
+            if handle < 0 {
+                return Err(RayError::binding(format!(
+                    "connect to {host}:{port} failed"
+                )));
+            }
+            Ok(TcpClient {
+                handle,
+                _not_send: PhantomData,
+            })
+        }
+    }
+
+    /// Send a Rayfall source string for the server to evaluate, returning the
+    /// response.
+    pub fn execute(&self, query: &str) -> Result<Value> {
+        self.send(&Value::string(query))
+    }
+
+    /// Send a pre-built message value, returning the response.
+    pub fn send(&self, msg: &Value) -> Result<Value> {
+        unsafe {
+            let r = sys::ray_ipc_send(self.handle, msg.as_ptr());
+            if r.is_null() {
+                return Err(RayError::binding("ipc send failed"));
+            }
+            Ok(Value::from_owned(materialize(check(r)?)?))
+        }
+    }
+
+    /// Fire-and-forget send (no response).
+    pub fn send_async(&self, msg: &Value) -> Result<()> {
+        unsafe {
+            let e = sys::ray_ipc_send_async(self.handle, msg.as_ptr());
+            if e != sys::ray_err_t_RAY_OK {
+                return Err(RayError::binding(format!(
+                    "ipc send_async failed (err {e})"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Close the connection (also done on drop).
+    pub fn close(self) {
+        drop(self);
+    }
+}
+
+impl Drop for TcpClient {
+    fn drop(&mut self) {
+        unsafe { sys::ray_ipc_close(self.handle) }
+    }
+}
