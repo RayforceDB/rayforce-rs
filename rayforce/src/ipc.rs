@@ -34,8 +34,9 @@ impl TcpClient {
             CString::new(password).map_err(|_| RayError::binding("password contains NUL"))?;
         unsafe {
             ensure_poll();
+            // engine added a 5th arg (timeout_ms) after commit a7294066; 0 = block.
             let handle =
-                sys::ray_ipc_connect(host_c.as_ptr(), port, user_c.as_ptr(), pass_c.as_ptr());
+                sys::ray_ipc_connect(host_c.as_ptr(), port, user_c.as_ptr(), pass_c.as_ptr(), 0);
             if handle < 0 {
                 return Err(RayError::binding(format!(
                     "connect to {host}:{port} failed"
