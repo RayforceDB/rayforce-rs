@@ -122,3 +122,36 @@ fn splayed_roundtrip() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn splayed_sym_values_roundtrip() {
+    // A SYM column loaded from a splayed table must resolve to its original
+    // values. The cells are positions in the column's *file* symbol domain;
+    // resolving them against the runtime domain (the pre-fix behaviour) yields
+    // garbage (e.g. "+"). `splayed_roundtrip` above only checks an i64 column,
+    // so it never exercised symbol resolution.
+    let _rt = Runtime::new().unwrap();
+    let t = Table::new(
+        &["k", "v"],
+        &[Value::sym_vec(&["abcdef123456", "xyz"]), Value::vec(&[1i64, 2])],
+    )
+    .unwrap();
+
+    let base = std::env::temp_dir().join(format!("rayforce_rs_splay_sym_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let dir = base.join("t");
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir_str = dir.to_str().unwrap();
+
+    // <dir>/.sym dotfile convention (no explicit sym path).
+    t.save_splayed(dir_str, None).unwrap();
+    let loaded = Table::load_splayed(dir_str, None).unwrap();
+
+    assert_eq!(loaded.shape(), (2, 2));
+    let k = loaded.column("k").unwrap();
+    assert_eq!(k.get(0).unwrap().as_sym().unwrap(), "abcdef123456");
+    assert_eq!(k.get(1).unwrap().as_sym().unwrap(), "xyz");
+    assert_eq!(loaded.column("v").unwrap().as_slice::<i64>().unwrap(), &[1, 2]);
+
+    let _ = std::fs::remove_dir_all(&base);
+}

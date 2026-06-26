@@ -42,6 +42,29 @@ pub(crate) unsafe fn set_attrs(v: Raw, a: u8) {
     (*v).__bindgen_anon_1.as_mut().attrs = a;
 }
 
+/// Resolution domain of a `RAY_SYM` vector (mirrors the engine's static-inline
+/// `ray_sym_vec_domain`, which bindgen does not emit): follow a slice to its
+/// parent, read the `sym_domain` aux field, and fall back to the runtime domain
+/// when unset. A `RAY_SYM` cell is a *position* in this domain — for FILE
+/// domains (e.g. a loaded splayed column) positions are not runtime intern ids
+/// and must be mapped via `ray_sym_domain_runtime_lut`.
+#[inline]
+pub(crate) unsafe fn sym_domain(v: Raw) -> *mut sys::ray_sym_domain_s {
+    let h = hdr(v);
+    if h.attrs & sys::RAY_ATTR_SLICE as u8 != 0 {
+        let parent = h.__bindgen_anon_1.__bindgen_anon_1.slice_parent;
+        if !parent.is_null() {
+            return sym_domain(parent);
+        }
+    }
+    let d = h.__bindgen_anon_1.__bindgen_anon_3.sym_domain;
+    if d.is_null() {
+        sys::ray_sym_runtime_domain()
+    } else {
+        d
+    }
+}
+
 #[inline]
 pub(crate) unsafe fn rc(v: Raw) -> u32 {
     hdr(v).rc
