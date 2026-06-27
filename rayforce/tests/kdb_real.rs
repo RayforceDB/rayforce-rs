@@ -46,10 +46,7 @@ fn real_q_roundtrips_atoms_vectors_and_tables() {
     // RevoLT-style pull-by-sequence: only rows past a cursor
     let t = Table::from_value(conn.execute("select from fixmsgs where seq > 3").unwrap()).unwrap();
     assert_eq!(t.shape(), (2, 4));
-    assert_eq!(
-        t.column("seq").unwrap().as_slice::<i64>().unwrap(),
-        &[4, 5]
-    );
+    assert_eq!(t.column("seq").unwrap().as_slice::<i64>().unwrap(), &[4, 5]);
 
     // kdb-side error surfaces as Err
     assert!(conn.execute("1+`a").is_err());

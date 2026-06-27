@@ -90,7 +90,10 @@ fn kdb_pulls_a_table() {
 
     let t = Table::from_value(v).unwrap();
     assert_eq!(t.shape(), (3, 2));
-    assert_eq!(t.column("seq").unwrap().as_slice::<i64>().unwrap(), &[1, 2, 3]);
+    assert_eq!(
+        t.column("seq").unwrap().as_slice::<i64>().unwrap(),
+        &[1, 2, 3]
+    );
     let sym = t.column("sym").unwrap();
     assert_eq!(sym.get(0).unwrap().as_sym().unwrap(), "AAPL");
     assert_eq!(sym.get(2).unwrap().as_sym().unwrap(), "GOOG");

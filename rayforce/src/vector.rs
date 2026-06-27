@@ -230,7 +230,11 @@ impl Value {
                     let pos = sys::ray_vec_get_sym_id(self.as_ptr(), idx as i64);
                     let dom = raw::sym_domain(self.as_ptr());
                     let lut = sys::ray_sym_domain_runtime_lut(dom);
-                    let id = if lut.is_null() { pos } else { *lut.offset(pos as isize) };
+                    let id = if lut.is_null() {
+                        pos
+                    } else {
+                        *lut.offset(pos as isize)
+                    };
                     Value::from_owned(crate::error::check(sys::ray_sym(id))?)
                 }
                 sys::RAY_STR => {

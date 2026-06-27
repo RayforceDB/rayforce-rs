@@ -133,7 +133,10 @@ fn splayed_sym_values_roundtrip() {
     let _rt = Runtime::new().unwrap();
     let t = Table::new(
         &["k", "v"],
-        &[Value::sym_vec(&["abcdef123456", "xyz"]), Value::vec(&[1i64, 2])],
+        &[
+            Value::sym_vec(&["abcdef123456", "xyz"]),
+            Value::vec(&[1i64, 2]),
+        ],
     )
     .unwrap();
 
@@ -151,7 +154,10 @@ fn splayed_sym_values_roundtrip() {
     let k = loaded.column("k").unwrap();
     assert_eq!(k.get(0).unwrap().as_sym().unwrap(), "abcdef123456");
     assert_eq!(k.get(1).unwrap().as_sym().unwrap(), "xyz");
-    assert_eq!(loaded.column("v").unwrap().as_slice::<i64>().unwrap(), &[1, 2]);
+    assert_eq!(
+        loaded.column("v").unwrap().as_slice::<i64>().unwrap(),
+        &[1, 2]
+    );
 
     let _ = std::fs::remove_dir_all(&base);
 }
