@@ -14,3 +14,15 @@
 #![allow(clippy::all)]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+// Vendored KDB+ IPC client (csrc/kdb_ipc.c). Not part of the engine bindings;
+// hand-declared here until it moves into the engine proper.
+extern "C" {
+    /// Connect + KDB+ handshake. Returns a connection slot (>= 0) or -1.
+    pub fn rkdb_connect(host: *const ::std::os::raw::c_char, port: ::std::os::raw::c_int) -> i64;
+    /// Send a rayforce object (typically a RAY_STR query) and return the decoded
+    /// response, or a RAY_ERROR object on failure (never null).
+    pub fn rkdb_send(slot: i64, msg: *mut ray_t) -> *mut ray_t;
+    /// Close a connection slot (no-op if invalid).
+    pub fn rkdb_close(slot: i64);
+}

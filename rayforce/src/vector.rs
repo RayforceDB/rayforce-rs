@@ -223,9 +223,18 @@ impl Value {
                 sys::RAY_TIMESTAMP => Value::timestamp_nanos(*(base.add(idx * 8) as *const i64)),
                 sys::RAY_GUID => Value::guid(&*(base.add(idx * 16) as *const [u8; 16])),
                 sys::RAY_SYM => {
-                    // Box directly from the id — lossless and avoids a
-                    // string round-trip / re-intern.
-                    let id = sys::ray_vec_get_sym_id(self.as_ptr(), idx as i64);
+                    // A cell is a *position* in the vector's symbol domain, not a
+                    // runtime intern id. For the runtime domain the LUT is NULL
+                    // and positions pass through; for FILE domains (loaded
+                    // splayed columns) the LUT maps position -> runtime id.
+                    let pos = sys::ray_vec_get_sym_id(self.as_ptr(), idx as i64);
+                    let dom = raw::sym_domain(self.as_ptr());
+                    let lut = sys::ray_sym_domain_runtime_lut(dom);
+                    let id = if lut.is_null() {
+                        pos
+                    } else {
+                        *lut.offset(pos as isize)
+                    };
                     Value::from_owned(crate::error::check(sys::ray_sym(id))?)
                 }
                 sys::RAY_STR => {

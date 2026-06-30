@@ -26,6 +26,17 @@ fn main() {
     sanitize_libclang_path();
     build_core_lib(&core);
 
+    // --- vendored KDB+ IPC client (csrc/kdb_ipc.c) ---
+    // Compiled here and linked BEFORE librayforce so its undefined `ray_*`
+    // symbols resolve from the core archive. (Staging spot until it moves into
+    // the engine proper.)
+    cc::Build::new()
+        .file("csrc/kdb_ipc.c")
+        .include(&include)
+        .warnings(false)
+        .compile("rkdb");
+    println!("cargo:rerun-if-changed=csrc/kdb_ipc.c");
+
     // --- linking ---
     println!("cargo:rustc-link-search=native={}", core.display());
     println!("cargo:rustc-link-lib=static=rayforce");
