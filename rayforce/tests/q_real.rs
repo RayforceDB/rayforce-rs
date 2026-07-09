@@ -1,16 +1,16 @@
-//! End-to-end check of the vendored KDB+ IPC client against a *real* `q`
-//! server (not the mock in `kdb.rs`). Gated on `RAYFORCE_KDB_ADDR=host:port`
-//! so it's a no-op when no kdb endpoint is available (CI, no `q` binary).
+//! End-to-end check of the `rayforce-q` Q IPC client against a *real* `q`
+//! server (not the mock in `q.rs`). Gated on `RAYFORCE_Q_ADDR=host:port`
+//! so it's a no-op when no Q endpoint is available (CI, no `q` binary).
 //!
 //! Start a server first, e.g.:
 //!   QHOME=~/lynx/q/m64 ~/lynx/q/m64/m64/q fixsrv.q -q
 //! then:
-//!   RAYFORCE_KDB_ADDR=127.0.0.1:5010 cargo test -p rayforce --test kdb_real -- --nocapture
+//!   RAYFORCE_Q_ADDR=127.0.0.1:5010 cargo test -p rayforce --test q_real -- --nocapture
 
-use rayforce::{kdb::KdbConnection, Runtime, Table};
+use rayforce::{q::QConnection, Runtime, Table};
 
 fn addr() -> Option<(String, u16)> {
-    let a = std::env::var("RAYFORCE_KDB_ADDR").ok()?;
+    let a = std::env::var("RAYFORCE_Q_ADDR").ok()?;
     let (h, p) = a.rsplit_once(':')?;
     Some((h.to_string(), p.parse().ok()?))
 }
@@ -18,11 +18,11 @@ fn addr() -> Option<(String, u16)> {
 #[test]
 fn real_q_roundtrips_atoms_vectors_and_tables() {
     let Some((host, port)) = addr() else {
-        eprintln!("RAYFORCE_KDB_ADDR unset — skipping real-q e2e");
+        eprintln!("RAYFORCE_Q_ADDR unset — skipping real-q e2e");
         return;
     };
     let _rt = Runtime::new().unwrap();
-    let conn = KdbConnection::connect(&host, port).unwrap();
+    let conn = QConnection::connect(&host, port).unwrap();
 
     // scalar
     let v = conn.execute("ping 41").unwrap();
@@ -48,6 +48,6 @@ fn real_q_roundtrips_atoms_vectors_and_tables() {
     assert_eq!(t.shape(), (2, 4));
     assert_eq!(t.column("seq").unwrap().as_slice::<i64>().unwrap(), &[4, 5]);
 
-    // kdb-side error surfaces as Err
+    // server-side error surfaces as Err
     assert!(conn.execute("1+`a").is_err());
 }

@@ -26,16 +26,28 @@ fn main() {
     sanitize_libclang_path();
     build_core_lib(&core);
 
-    // --- vendored KDB+ IPC client (csrc/kdb_ipc.c) ---
-    // Compiled here and linked BEFORE librayforce so its undefined `ray_*`
-    // symbols resolve from the core archive. (Staging spot until it moves into
-    // the engine proper.)
+    // --- Q IPC client (rayforce-q's q.c) ---
+    // Linked BEFORE librayforce so its undefined `ray_*` symbols resolve from
+    // the core archive. Needs the core's private `src/` on the include path
+    // (`table/sym.h`).
+    let q_src = q_src_dir();
+    let q_c = q_src.join("q.c");
+    assert!(
+        q_c.exists(),
+        "rayforce-q client not found at {}.\n\
+         Set RAYFORCE_Q_SRC to your rayforce-q checkout (default: ~/rayforce-q).",
+        q_c.display()
+    );
     cc::Build::new()
-        .file("csrc/kdb_ipc.c")
+        .file(&q_c)
+        .include(&q_src)
         .include(&include)
+        .include(core.join("src"))
         .warnings(false)
-        .compile("rkdb");
-    println!("cargo:rerun-if-changed=csrc/kdb_ipc.c");
+        .compile("rayforce_q");
+    println!("cargo:rerun-if-changed={}", q_c.display());
+    println!("cargo:rerun-if-changed={}", q_src.join("q.h").display());
+    println!("cargo:rerun-if-env-changed=RAYFORCE_Q_SRC");
 
     // --- linking ---
     println!("cargo:rustc-link-search=native={}", core.display());
@@ -92,6 +104,14 @@ fn core_src_dir() -> PathBuf {
     }
     let home = env::var("HOME").expect("HOME not set and RAYFORCE_SRC unset");
     Path::new(&home).join("rayforce")
+}
+
+fn q_src_dir() -> PathBuf {
+    if let Ok(p) = env::var("RAYFORCE_Q_SRC") {
+        return PathBuf::from(p);
+    }
+    let home = env::var("HOME").expect("HOME not set and RAYFORCE_Q_SRC unset");
+    Path::new(&home).join("rayforce-q")
 }
 
 fn sanitize_libclang_path() {

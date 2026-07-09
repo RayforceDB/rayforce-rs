@@ -1,13 +1,13 @@
-//! Verify the vendored KDB+ IPC client against a mock kdb server (raw TCP that
-//! speaks the kdb wire protocol). No `q` binary required.
+//! Verify the `rayforce-q` Q IPC client against a mock Q server (raw TCP that
+//! speaks the Q wire protocol). No `q` binary required.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
 
-use rayforce::{kdb::KdbConnection, Runtime, Table};
+use rayforce::{q::QConnection, Runtime, Table};
 
-// --- kdb wire-format builders (server side) -------------------------------
+// --- Q wire-format builders (server side) ---------------------------------
 
 /// Long (i64) vector: type 7, attrs, int32 len, data.
 fn long_vec(vals: &[i64]) -> Vec<u8> {
@@ -43,7 +43,7 @@ fn table(names: &[&str], cols: &[Vec<u8>]) -> Vec<u8> {
     b
 }
 
-/// Wrap a serialized object as a kdb response message (8-byte header + body).
+/// Wrap a serialized object as a Q response message (8-byte header + body).
 fn msg(body: &[u8]) -> Vec<u8> {
     let size = (8 + body.len()) as u32;
     let mut b = vec![1u8, 2u8, 0u8, 0u8]; // little-endian, response, uncompressed
@@ -52,7 +52,7 @@ fn msg(body: &[u8]) -> Vec<u8> {
     b
 }
 
-/// Bind a mock kdb server that answers one request with `response`; returns the port.
+/// Bind a mock Q server that answers one request with `response`; returns the port.
 fn spawn_mock(response: Vec<u8>) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -76,7 +76,7 @@ fn spawn_mock(response: Vec<u8>) -> u16 {
 }
 
 #[test]
-fn kdb_pulls_a_table() {
+fn q_pulls_a_table() {
     let _rt = Runtime::new().unwrap();
 
     let response = msg(&table(
@@ -85,7 +85,7 @@ fn kdb_pulls_a_table() {
     ));
     let port = spawn_mock(response);
 
-    let conn = KdbConnection::connect("127.0.0.1", port).unwrap();
+    let conn = QConnection::connect("127.0.0.1", port).unwrap();
     let v = conn.execute("select from fixmsgs where i > 0").unwrap();
 
     let t = Table::from_value(v).unwrap();
@@ -100,13 +100,13 @@ fn kdb_pulls_a_table() {
 }
 
 #[test]
-fn kdb_surfaces_server_error() {
+fn q_surfaces_server_error() {
     let _rt = Runtime::new().unwrap();
-    // kdb error frame: type -128 then a NUL-terminated message.
+    // Q error frame: type -128 then a NUL-terminated message.
     let mut body = vec![(-128i8) as u8];
     body.extend_from_slice(b"type\0");
     let port = spawn_mock(msg(&body));
 
-    let conn = KdbConnection::connect("127.0.0.1", port).unwrap();
+    let conn = QConnection::connect("127.0.0.1", port).unwrap();
     assert!(conn.execute("1+`a").is_err());
 }

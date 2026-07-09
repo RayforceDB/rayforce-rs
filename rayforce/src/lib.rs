@@ -16,9 +16,9 @@ mod dict;
 mod error;
 mod expr;
 mod ipc;
-pub mod kdb;
 mod list;
 mod ops;
+pub mod q;
 mod query;
 mod raw;
 mod runtime;
@@ -33,8 +33,8 @@ pub use expr::{
     avg, col, count, distinct, first, last, lit, max, median, min, sum, Expr, IntoExpr,
 };
 pub use ipc::TcpClient;
-pub use kdb::KdbConnection;
 pub use ops::Operation;
+pub use q::QConnection;
 pub use query::{Select, Update};
 pub use runtime::{eval, eval_value, get_global, is_live, set_global, Runtime};
 pub use table::Table;

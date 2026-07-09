@@ -15,14 +15,32 @@
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-// Vendored KDB+ IPC client (csrc/kdb_ipc.c). Not part of the engine bindings;
-// hand-declared here until it moves into the engine proper.
+// Q IPC wire-format client from the shared `rayforce-q` repo (q.c/q.h). Not
+// part of the engine bindings; hand-declared here to match `q.h`.
 extern "C" {
-    /// Connect + KDB+ handshake. Returns a connection slot (>= 0) or -1.
-    pub fn rkdb_connect(host: *const ::std::os::raw::c_char, port: ::std::os::raw::c_int) -> i64;
-    /// Send a rayforce object (typically a RAY_STR query) and return the decoded
-    /// response, or a RAY_ERROR object on failure (never null).
-    pub fn rkdb_send(slot: i64, msg: *mut ray_t) -> *mut ray_t;
-    /// Close a connection slot (no-op if invalid).
-    pub fn rkdb_close(slot: i64);
+    /// Open a TCP connection to a Q server and perform the login handshake.
+    /// Returns a connection fd (>= 0), or a negative `Q_ERR_*` code.
+    pub fn q_connect(
+        host: *const ::std::os::raw::c_char,
+        port: ::std::os::raw::c_int,
+        user: *const ::std::os::raw::c_char,
+        password: *const ::std::os::raw::c_char,
+        timeout_ms: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+    /// Close a connection fd. Returns 0 on success, -1 on an invalid fd.
+    pub fn q_close(fd: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+    /// Encode + exchange + decode: send `msg` and return the decoded response
+    /// (possibly a `RAY_ERROR`), or null on a transport/serialization failure
+    /// with a short reason written to `err`.
+    pub fn q_send(
+        fd: ::std::os::raw::c_int,
+        msg: *mut ray_t,
+        err: *mut ::std::os::raw::c_char,
+        errlen: usize,
+    ) -> *mut ray_t;
 }
+
+/// `q_connect` failure codes (mirrors `q.h`).
+pub const Q_ERR_SOCKET: ::std::os::raw::c_int = -1;
+pub const Q_ERR_HANDSHAKE: ::std::os::raw::c_int = -2;
+pub const Q_ERR_TIMEOUT: ::std::os::raw::c_int = -3;
