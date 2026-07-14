@@ -38,6 +38,17 @@ extern "C" {
         err: *mut ::std::os::raw::c_char,
         errlen: usize,
     ) -> *mut ray_t;
+    /// Decompress (if needed) and deserialize a response *body* (wire header
+    /// already stripped) into a freshly-owned object — possibly a `RAY_ERROR`
+    /// carrying a Q server-side error. Touches the symbol table: engine thread
+    /// only. Returns null on a decode failure with a short reason in `err`.
+    pub fn q_decode(
+        resp: *mut u8,
+        resp_len: i64,
+        compressed: ::std::os::raw::c_int,
+        err: *mut ::std::os::raw::c_char,
+        errlen: usize,
+    ) -> *mut ray_t;
 }
 
 /// `q_connect` failure codes (mirrors `q.h`).
