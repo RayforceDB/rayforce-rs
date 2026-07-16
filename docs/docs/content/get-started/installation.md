@@ -31,8 +31,7 @@ environment variable at it; it defaults to `~/rayforce`. The build script runs
 the core's `make lib` to produce `librayforce.a`, then links it.
 
 ```sh
-# Clone the core somewhere, e.g. your home directory.
-git clone https://github.com/RayforceDB/rayforce.git ~/rayforce
+git clone https://github.com/RayforceDB/rayforce-rs.git ~/rayforce
 
 # Point the build at it (default is ~/rayforce, so this is optional there).
 export RAYFORCE_SRC=~/rayforce

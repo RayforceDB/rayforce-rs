@@ -88,8 +88,9 @@ println!("{result}");
 
 ## Installation
 
-The crate links a local RayforceDB core checkout. Point `RAYFORCE_SRC` at it (defaults to
-`~/rayforce`); the build script compiles and statically links `librayforce.a`.
+The crate links two local checkouts: the RayforceDB **core** (`RAYFORCE_SRC`) and the
+**rayforce-q** IPC client (`RAYFORCE_Q_SRC`). The build script compiles both and statically
+links `librayforce.a`.
 
 ```toml
 # Cargo.toml
@@ -98,14 +99,29 @@ rayforce = { git = "https://github.com/RayforceDB/rayforce-rs" }
 ```
 
 ```sh
-export RAYFORCE_SRC=/path/to/rayforce      # default: ~/rayforce
+git clone https://github.com/RayforceDB/rayforce   ~/rayforce      # core
+git clone https://github.com/RayforceDB/rayforce-q ~/rayforce-q    # Q IPC client
+
+export RAYFORCE_SRC=/path/to/rayforce       # default: ~/rayforce
+export RAYFORCE_Q_SRC=/path/to/rayforce-q   # default: ~/rayforce-q
+
 cargo build
 cargo test
 ```
 
-Requirements: a C toolchain (`make`, `clang`) and `libclang` for `bindgen` (on macOS,
-`LIBCLANG_PATH` may be needed — see `.cargo/config.toml`). The `chrono` feature is on by
-default for date/time/timestamp conversions.
+Requirements: a C toolchain (`make`, `clang`) and `libclang` for `bindgen`.
+
+`bindgen` locates `libclang` via `LIBCLANG_PATH`. This is deliberately **not** set in the
+repo's `.cargo/config.toml`. If bindgen can't auto-detect libclang, set it yourself:
+
+```sh
+# macOS (CTL):
+export LIBCLANG_PATH="/Library/Developer/CommandLineTools/usr/lib"
+# Linux:
+export LIBCLANG_PATH="$(dirname "$(find /usr/lib -name 'libclang*.so*' | head -1)")"
+```
+
+The `chrono` is on by default for date/time/timestamp conversions.
 
 ---
 
