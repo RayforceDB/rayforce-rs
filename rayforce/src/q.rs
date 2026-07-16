@@ -71,7 +71,7 @@ impl QConnection {
     /// surfaces as `Err`.
     pub fn execute(&self, query: &str) -> Result<Value> {
         let q = Value::string(query);
-        let mut err = [0i8; 256];
+        let mut err = [0 as std::os::raw::c_char; 256];
         // null: transport/serialization failure (reason in `err`). Otherwise an
         // owned result, possibly a RAY_ERROR that `check` turns into `Err`.
         let res = unsafe { sys::q_send(self.fd, q.as_ptr(), err.as_mut_ptr(), err.len()) };

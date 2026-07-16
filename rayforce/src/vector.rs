@@ -239,7 +239,7 @@ impl Value {
                 }
                 sys::RAY_STR => {
                     let mut len: usize = 0;
-                    let p = sys::ray_str_vec_get(self.as_ptr(), idx as i64, &mut len) as *const u8;
+                    let p = sys::ray_str_vec_get(self.as_ptr(), idx as i64, &mut len).cast::<u8>();
                     if p.is_null() {
                         Value::string("")
                     } else {

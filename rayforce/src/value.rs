@@ -136,7 +136,7 @@ impl Value {
                 sys::ray_error_free(s);
                 return String::new();
             }
-            let p = sys::ray_str_ptr(s) as *const u8;
+            let p = sys::ray_str_ptr(s).cast::<u8>();
             let n = sys::ray_str_len(s);
             let out = if p.is_null() || n == 0 {
                 String::new()

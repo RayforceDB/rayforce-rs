@@ -267,7 +267,7 @@ unsafe fn sym_id_to_string(id: i64) -> String {
     if s.is_null() {
         return String::new();
     }
-    let p = sys::ray_str_ptr(s) as *const u8;
+    let p = sys::ray_str_ptr(s).cast::<u8>();
     let n = sys::ray_str_len(s);
     if p.is_null() || n == 0 {
         String::new()

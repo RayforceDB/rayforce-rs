@@ -205,7 +205,7 @@ impl Value {
 
 /// Read the bytes of a `-RAY_STR` atom into an owned `String`.
 unsafe fn read_str_atom(p: Raw) -> String {
-    let ptr = sys::ray_str_ptr(p) as *const u8;
+    let ptr = sys::ray_str_ptr(p).cast::<u8>();
     let n = sys::ray_str_len(p);
     if ptr.is_null() || n == 0 {
         String::new()
