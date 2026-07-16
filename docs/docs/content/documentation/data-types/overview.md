@@ -28,6 +28,8 @@ Values fall into a few shapes:
 - **Dict** — a keys-vector → values mapping (type code `99`).
 - **Table** — a columnar dict of named vectors (type code `98`). See
   [Table](../table/overview.md).
+- **Function** — a user-defined lambda (type code `100`). See
+  [Functions](functions.md).
 
 The atom code and its vector code are mirror images: an `I64` atom is `-5`, an
 `I64` vector is `5`. Inspect them with `.type_code()` (signed) or `.abs_type()`
@@ -54,6 +56,7 @@ The atom code and its vector code are mirror images: an `I64` atom is `-5`, an
 | [List](list.md) | 0 | `Value::list(&[..])` | — | `get` |
 | [Dict](dict.md) | 99 | `Value::dict(keys, values)` | — | `dict_get` |
 | [Table](../table/overview.md) | 98 | `Table::new(..)` | — | `column(..)` |
+| [Function](functions.md) | 100 | `Fn::new("(fn …)")` | — | `call` / `apply` |
 
 !!! tip "Integer literals default to `i32`"
     A bare literal like `42` is `i32` in Rust. Annotate the element type when you

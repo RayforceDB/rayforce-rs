@@ -109,6 +109,7 @@ nav:
           - Vector: content/documentation/data-types/vector.md
           - List: content/documentation/data-types/list.md
           - Dict: content/documentation/data-types/dict.md
+          - Functions: content/documentation/data-types/functions.md
       - Table:
           - Overview: content/documentation/table/overview.md
           - Create: content/documentation/table/create.md

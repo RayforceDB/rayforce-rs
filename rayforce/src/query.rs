@@ -51,6 +51,7 @@ fn dag_rewrite(e: &Expr) -> Expr {
             Expr::Op(Operation::Sum, vec![dag_rewrite(&ops[0])])
         }
         Expr::Op(op, ops) => Expr::Op(*op, ops.iter().map(dag_rewrite).collect()),
+        Expr::Call(name, ops) => Expr::Call(name.clone(), ops.iter().map(dag_rewrite).collect()),
         other => other.clone(),
     }
 }

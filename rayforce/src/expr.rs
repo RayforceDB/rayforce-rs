@@ -22,6 +22,10 @@ pub enum Expr {
     Lit(Value),
     /// An operation applied to operands.
     Op(Operation, Vec<Expr>),
+    /// A call to a named, env-bound function (e.g. a user [`crate::Fn`] lambda)
+    /// applied to operands. Compiles just like [`Expr::Op`] but with an
+    /// arbitrary function name in head position.
+    Call(String, Vec<Expr>),
 }
 
 /// Anything convertible into an [`Expr`] operand: another `Expr`, a literal
@@ -198,6 +202,16 @@ impl Expr {
                 // `ray_eval` resolves and applies it. Aggregations return a lazy
                 // DAG result that the eval entry points materialize.
                 items.push(Value::name_ref(op.as_str()));
+                for o in operands {
+                    items.push(o.compile());
+                }
+                Value::list(&items)
+            }
+            Expr::Call(name, operands) => {
+                // Same shape as `Op`, but the head is a reference to a named
+                // env binding (a user lambda bound by `Fn::apply`).
+                let mut items = Vec::with_capacity(operands.len() + 1);
+                items.push(Value::name_ref(name));
                 for o in operands {
                     items.push(o.compile());
                 }

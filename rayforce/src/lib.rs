@@ -16,6 +16,7 @@ mod dict;
 mod error;
 mod expr;
 mod ipc;
+mod lambda;
 mod list;
 mod ops;
 pub mod q;
@@ -33,6 +34,7 @@ pub use expr::{
     avg, col, count, distinct, first, last, lit, max, median, min, sum, Expr, IntoExpr,
 };
 pub use ipc::TcpClient;
+pub use lambda::Fn;
 pub use ops::Operation;
 pub use q::QConnection;
 pub use query::{Select, Update};
