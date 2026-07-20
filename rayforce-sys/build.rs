@@ -1,7 +1,10 @@
 //! Build script for `rayforce-sys`.
 //!
-//! 1. Locates the RayforceDB v2 core source tree (env `RAYFORCE_SRC`, default
-//!    `~/rayforce`).
+//! 1. Locates the RayforceDB v2 core + `rayforce-q` source trees (see
+//!    [`core_src_dir`] / [`q_src_dir`] for the resolution order). When neither
+//!    an env override nor a local dev checkout is present — the common case for
+//!    a crate downloaded from crates.io — the pinned release tags are shallow
+//!    cloned from GitHub into `OUT_DIR`.
 //! 2. Builds the static library `librayforce.a` via the core's `make lib`
 //!    (incremental — a no-op when objects are up to date).
 //! 3. Emits the static link directives.
@@ -10,6 +13,14 @@
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// Pinned upstream sources cloned when no local checkout is available. Bump
+/// these in lockstep with a `rayforce-sys` release. Override at build time with
+/// the `RAYFORCE_REPO` / `RAYFORCE_REF` (and `_Q_` variants) env vars.
+const RAYFORCE_REPO: &str = "https://github.com/RayforceDB/rayforce.git";
+const RAYFORCE_REF: &str = "2.5.1";
+const RAYFORCE_Q_REPO: &str = "https://github.com/RayforceDB/rayforce-q.git";
+const RAYFORCE_Q_REF: &str = "2.0.0";
 
 fn main() {
     let core = core_src_dir();
@@ -98,20 +109,94 @@ fn main() {
     );
 }
 
+/// Resolve the RayforceDB core source tree, in order of precedence:
+/// 1. `RAYFORCE_SRC` — an explicit checkout (used by CI and local overrides).
+/// 2. `~/rayforce` — a developer's local clone, if it looks like the core.
+/// 3. A shallow clone of [`RAYFORCE_REF`] into `OUT_DIR` (crates.io consumers).
 fn core_src_dir() -> PathBuf {
+    println!("cargo:rerun-if-env-changed=RAYFORCE_SRC");
     if let Ok(p) = env::var("RAYFORCE_SRC") {
         return PathBuf::from(p);
     }
-    let home = env::var("HOME").expect("HOME not set and RAYFORCE_SRC unset");
-    Path::new(&home).join("rayforce")
+    if let Ok(home) = env::var("HOME") {
+        let local = Path::new(&home).join("rayforce");
+        if local.join("include/rayforce.h").exists() {
+            return local;
+        }
+    }
+    clone_pinned(
+        "rayforce",
+        "RAYFORCE_REPO",
+        RAYFORCE_REPO,
+        "RAYFORCE_REF",
+        RAYFORCE_REF,
+    )
 }
 
+/// Resolve the `rayforce-q` source tree; same precedence as [`core_src_dir`],
+/// keyed off `RAYFORCE_Q_SRC` / `~/rayforce-q` / a clone of [`RAYFORCE_Q_REF`].
 fn q_src_dir() -> PathBuf {
+    println!("cargo:rerun-if-env-changed=RAYFORCE_Q_SRC");
     if let Ok(p) = env::var("RAYFORCE_Q_SRC") {
         return PathBuf::from(p);
     }
-    let home = env::var("HOME").expect("HOME not set and RAYFORCE_Q_SRC unset");
-    Path::new(&home).join("rayforce-q")
+    if let Ok(home) = env::var("HOME") {
+        let local = Path::new(&home).join("rayforce-q");
+        if local.join("q.c").exists() {
+            return local;
+        }
+    }
+    clone_pinned(
+        "rayforce-q",
+        "RAYFORCE_Q_REPO",
+        RAYFORCE_Q_REPO,
+        "RAYFORCE_Q_REF",
+        RAYFORCE_Q_REF,
+    )
+}
+
+/// Shallow-clone `repo` at `git_ref` into `OUT_DIR/<name>` and return the path.
+/// Reuses an existing clone (`OUT_DIR` persists across incremental rebuilds) so
+/// repeated builds don't re-hit the network. The repo URL and ref can be
+/// overridden via the given env vars for testing against unreleased cores.
+fn clone_pinned(
+    name: &str,
+    repo_env: &str,
+    repo_default: &str,
+    ref_env: &str,
+    ref_default: &str,
+) -> PathBuf {
+    println!("cargo:rerun-if-env-changed={repo_env}");
+    println!("cargo:rerun-if-env-changed={ref_env}");
+    let repo = env::var(repo_env).unwrap_or_else(|_| repo_default.to_string());
+    let git_ref = env::var(ref_env).unwrap_or_else(|_| ref_default.to_string());
+
+    let dst = PathBuf::from(env::var("OUT_DIR").unwrap()).join(name);
+    if dst.join(".git").exists() {
+        return dst;
+    }
+
+    eprintln!(
+        "rayforce-sys: cloning {name} {git_ref} from {repo} into {}",
+        dst.display()
+    );
+    let status = Command::new("git")
+        .args(["clone", "--depth", "1", "--branch", &git_ref, &repo])
+        .arg(&dst)
+        .status()
+        .unwrap_or_else(|e| panic!("failed to invoke `git clone` for {name}: {e}"));
+    assert!(
+        status.success(),
+        "`git clone --branch {git_ref} {repo}` failed (exit {:?}).\n\
+         Provide a local checkout via {}_SRC to build offline.",
+        status.code(),
+        if name == "rayforce-q" {
+            "RAYFORCE_Q"
+        } else {
+            "RAYFORCE"
+        },
+    );
+    dst
 }
 
 fn sanitize_libclang_path() {

@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags:
+      # Stable: X.Y.Z
+      - '[0-9]+.[0-9]+.[0-9]+'
+      # Pre-release: X.Y.Z-alpha.N, X.Y.Z-beta.N, X.Y.Z-rc.N
+      - '[0-9]+.[0-9]+.[0-9]+-*'
+
+env:
+  CARGO_TERM_COLOR: always
+  # The publish verify build (and the downstream rayforce-sys build triggered
+  # when publishing `rayforce`) reads these to avoid re-cloning the C sources.
+  RAYFORCE_SRC: ${{ github.workspace }}/rayforce-core
+  RAYFORCE_Q_SRC: ${{ github.workspace }}/rayforce-q
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to mint the short-lived crates.io token via Trusted Publishing.
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout bindings
+        uses: actions/checkout@v4
+
+      # Pin the same refs as rayforce-sys/build.rs so a source build here
+      # matches what a crates.io consumer gets.
+      - name: Checkout RayforceDB core (2.5.1)
+        uses: actions/checkout@v4
+        with:
+          repository: RayforceDB/rayforce
+          ref: '2.5.1'
+          path: rayforce-core
+
+      - name: Checkout rayforce-q client (2.0.0)
+        uses: actions/checkout@v4
+        with:
+          repository: RayforceDB/rayforce-q
+          ref: '2.0.0'
+          path: rayforce-q
+
+      - name: Install toolchain deps
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev build-essential
+
+      # .cargo/config.toml sets a macOS LIBCLANG_PATH for local dev; on Linux
+      # that path is invalid, so point bindgen at the apt libclang here.
+      - name: Locate libclang
+        run: |
+          LIB="$(find /usr/lib -name 'libclang*.so*' 2>/dev/null | head -1)"
+          if [ -z "$LIB" ]; then echo "libclang not found" >&2; exit 1; fi
+          echo "LIBCLANG_PATH=$(dirname "$LIB")" >> "$GITHUB_ENV"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          CRATE_VERSION="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          echo "Tag: ${TAG}  Cargo.toml: ${CRATE_VERSION}"
+          if [ "$TAG" != "$CRATE_VERSION" ]; then
+            echo "::error::Tag ${TAG} does not match Cargo.toml version ${CRATE_VERSION}" >&2
+            exit 1
+          fi
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+      # Trusted Publishing: exchanges the job's OIDC identity for a short-lived
+      # crates.io token. No CARGO_REGISTRY_TOKEN secret needed — but both
+      # `rayforce` and `rayforce-sys` must have this repo/workflow registered as
+      # a trusted publisher on crates.io.
+      - name: Authenticate to crates.io
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish rayforce-sys
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if curl -sfL "https://crates.io/api/v1/crates/rayforce-sys/${TAG}" \
+               -H 'User-Agent: rayforce-rs-release-ci' >/dev/null; then
+            echo "rayforce-sys ${TAG} already on crates.io — skipping"
+          else
+            cargo publish -p rayforce-sys
+          fi
+
+      - name: Wait for rayforce-sys to index
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          for i in $(seq 1 30); do
+            if curl -sfL "https://crates.io/api/v1/crates/rayforce-sys/${TAG}" \
+                 -H 'User-Agent: rayforce-rs-release-ci' >/dev/null; then
+              echo "rayforce-sys ${TAG} is available"
+              exit 0
+            fi
+            echo "Waiting for rayforce-sys ${TAG} to index... (${i}/30)"
+            sleep 10
+          done
+          echo "::error::rayforce-sys ${TAG} did not appear on crates.io in time" >&2
+          exit 1
+
+      - name: Publish rayforce
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if curl -sfL "https://crates.io/api/v1/crates/rayforce/${TAG}" \
+               -H 'User-Agent: rayforce-rs-release-ci' >/dev/null; then
+            echo "rayforce ${TAG} already on crates.io — skipping"
+          else
+            cargo publish -p rayforce
+          fi
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Announce release on Zulip
+        if: success()
+        run: |
+          chmod +x scripts/announce-release.sh
+          ./scripts/announce-release.sh "${{ steps.version.outputs.version }}" "${{ secrets.ZULIP_RELEASES_BOT_TOKEN }}"

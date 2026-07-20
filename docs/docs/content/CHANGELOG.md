@@ -3,7 +3,7 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
-## 0.1.0
+## 1.0.0
 
 Initial release of the Rust bindings for RayforceDB v2.
 

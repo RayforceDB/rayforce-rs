@@ -3,12 +3,17 @@ resolver = "2"
 members = ["rayforce-sys", "rayforce"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 license = "MIT"
 authors = ["RayforceDB"]
 repository = "https://github.com/RayforceDB/rayforce-rs"
+homepage = "https://rs.rayforcedb.com"
+documentation = "https://rs.rayforcedb.com"
+readme = "README.md"
+keywords = ["rayforce", "database", "columnar", "kdb", "timeseries"]
+categories = ["database", "api-bindings"]
 rust-version = "1.74"
 
 [workspace.dependencies]
-rayforce-sys = { path = "rayforce-sys", version = "0.1.0" }
+rayforce-sys = { path = "rayforce-sys", version = "1.0.0" }
