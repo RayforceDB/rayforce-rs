@@ -29,11 +29,11 @@ jobs:
 
       # Pin the same refs as rayforce-sys/build.rs so a source build here
       # matches what a crates.io consumer gets.
-      - name: Checkout RayforceDB core (2.5.1)
+      - name: Checkout RayforceDB core (v2.5.1)
         uses: actions/checkout@v4
         with:
           repository: RayforceDB/rayforce
-          ref: '2.5.1'
+          ref: 'v2.5.1'
           path: rayforce-core
 
       - name: Checkout rayforce-q client (2.0.0)

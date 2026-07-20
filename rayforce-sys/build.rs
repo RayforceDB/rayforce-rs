@@ -18,7 +18,7 @@ use std::process::Command;
 /// these in lockstep with a `rayforce-sys` release. Override at build time with
 /// the `RAYFORCE_REPO` / `RAYFORCE_REF` (and `_Q_` variants) env vars.
 const RAYFORCE_REPO: &str = "https://github.com/RayforceDB/rayforce.git";
-const RAYFORCE_REF: &str = "2.5.1";
+const RAYFORCE_REF: &str = "v2.5.1";
 const RAYFORCE_Q_REPO: &str = "https://github.com/RayforceDB/rayforce-q.git";
 const RAYFORCE_Q_REF: &str = "2.0.0";
 
