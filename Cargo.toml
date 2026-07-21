@@ -3,7 +3,7 @@ resolver = "2"
 members = ["rayforce-sys", "rayforce"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 license = "MIT"
 authors = ["RayforceDB"]
@@ -16,4 +16,4 @@ categories = ["database", "api-bindings"]
 rust-version = "1.74"
 
 [workspace.dependencies]
-rayforce-sys = { path = "rayforce-sys", version = "1.0.0" }
+rayforce-sys = { path = "rayforce-sys", version = "1.0.1" }

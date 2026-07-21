@@ -3,6 +3,18 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
+## 1.0.1
+
+### Added
+
+- **Decode Q wire messages from an external transport.** New
+  [`q::decode_response`](documentation/ipc.md) turns a complete Q IPC message
+  (8-byte wire header + body, compressed or not) into a `Value`. This lets
+  socket I/O live in a separate transport thread that owns a plain `TcpStream`
+  and just moves bytes, while deserialization into engine objects stays on the
+  thread that owns the `Runtime`. Q server-side errors surface as `Err`.
+
+
 ## 1.0.0
 
 Initial release of the Rust bindings for RayforceDB v2.
