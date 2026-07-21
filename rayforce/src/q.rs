@@ -94,3 +94,53 @@ impl Drop for QConnection {
         unsafe { sys::q_close(self.fd) };
     }
 }
+
+/// Decode a complete Q response message (8-byte wire header + body) that was
+/// received by an **external transport** — e.g. a worker thread that owns a
+/// plain `std::net::TcpStream` with read timeouts — into a [`Value`].
+///
+/// This is the engine-thread half of a split client: socket I/O is plain
+/// bytes and thread-safe anywhere, while this call allocates engine objects
+/// and must run on the thread that owns the [`crate::Runtime`] (like every
+/// other constructor in this crate). A Q server-side error surfaces as `Err`.
+pub fn decode_response(msg: &[u8]) -> Result<Value> {
+    // q_header_t (q.c): endianness, msgtype, compressed, reserved, u32 size.
+    // `size` counts the whole message, header included. Little-endian wire only.
+    const HEADER_LEN: usize = 8;
+    if msg.len() < HEADER_LEN {
+        return Err(RayError::binding("Q: message shorter than wire header"));
+    }
+    let size = u32::from_le_bytes([msg[4], msg[5], msg[6], msg[7]]) as usize;
+    if size != msg.len() {
+        return Err(RayError::binding(
+            "Q: message length does not match wire header",
+        ));
+    }
+    let compressed = i32::from(msg[2] != 0);
+    let body = &msg[HEADER_LEN..];
+    if body.is_empty() {
+        return Err(RayError::binding("Q: empty response body"));
+    }
+
+    let mut err = [0i8; 256];
+    let res = unsafe {
+        sys::q_decode(
+            body.as_ptr() as *mut u8,
+            body.len() as i64,
+            compressed,
+            err.as_mut_ptr(),
+            err.len(),
+        )
+    };
+    if res.is_null() {
+        let msg = unsafe { std::ffi::CStr::from_ptr(err.as_ptr()) }.to_string_lossy();
+        let msg = if msg.is_empty() {
+            "q_decode failed".into()
+        } else {
+            msg
+        };
+        return Err(RayError::binding(format!("Q: {msg}")));
+    }
+    let ok = unsafe { check(res)? };
+    Ok(unsafe { Value::from_owned(ok) })
+}
