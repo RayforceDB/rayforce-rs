@@ -38,11 +38,11 @@ ray_t* ray_de(ray_t* bytes);
 /* src/core/runtime.c — last per-VM error message (set alongside a RAY_ERROR) */
 const char* ray_error_msg(void);
 
-/* src/core/poll.h + runtime.h — the IPC client requires a poll object on the
- * runtime before connecting (ray_poll_t is opaque; use void*). */
-void* ray_poll_create(void);
-void* ray_runtime_get_poll(void);
-void  ray_runtime_set_poll(void* poll);
+/* The poll object the IPC client needs (ray_poll_create / ray_runtime_get_poll
+ * / ray_runtime_set_poll) is exported by the public header as of core v2.5.8,
+ * so it is no longer hand-declared here. ray_poll_create now returns the typed
+ * `ray_poll_t*` rather than the old `void*` — see the cast in
+ * rayforce/src/ipc.rs::ensure_poll. */
 
 #ifdef __cplusplus
 }

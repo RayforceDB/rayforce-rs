@@ -13,8 +13,11 @@ use std::marker::PhantomData;
 /// Ensure the runtime has a poll object (required before connecting).
 unsafe fn ensure_poll() {
     if sys::ray_runtime_get_poll().is_null() {
+        // Since core v2.5.8 the public header types `ray_poll_create` as
+        // `ray_poll_t*`, while `ray_runtime_set_poll` still takes `void*` —
+        // so the handle needs an explicit cast on the way through.
         let p = sys::ray_poll_create();
-        sys::ray_runtime_set_poll(p);
+        sys::ray_runtime_set_poll(p.cast());
     }
 }
 
