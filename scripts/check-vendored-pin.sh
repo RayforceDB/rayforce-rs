@@ -28,12 +28,37 @@ if [ ! -e "$core/include/rayforce.h" ]; then
   exit 1
 fi
 
-got_tag="$(git -C "$core" describe --tags --exact-match 2>/dev/null || echo '<not on a tag>')"
+head_commit="$(git -C "$core" rev-parse HEAD)"
 got_commit="$(git -C "$core" rev-parse --short="${#want_commit}" HEAD)"
 
+# Resolve the tag we expect and compare it to HEAD, rather than asking
+# `git describe` what HEAD happens to be named. actions/checkout clones
+# submodules with `git submodule update --depth=1`, and a shallow clone carries
+# no tags at all, so `describe` on CI always answers "not on a tag" even when
+# the pin is correct. Fetching the single tag we care about takes ~1s and makes
+# the check behave the same on CI as in a full local clone.
+want_tag="v$want_version"
+resolve_tag() { git -C "$core" rev-parse -q --verify "refs/tags/$want_tag^{commit}" || true; }
+
+tag_commit="$(resolve_tag)"
+if [ -z "$tag_commit" ]; then
+  # --depth=1 only where the clone is already shallow: on a full local checkout
+  # it would leave a .git/shallow behind and truncate history nobody asked to
+  # lose. Either way this fetches one ref, not the tag list.
+  if [ "$(git -C "$core" rev-parse --is-shallow-repository)" = true ]; then
+    git -C "$core" fetch --depth=1 --quiet origin "refs/tags/$want_tag:refs/tags/$want_tag" || true
+  else
+    git -C "$core" fetch --quiet origin "refs/tags/$want_tag:refs/tags/$want_tag" || true
+  fi
+  tag_commit="$(resolve_tag)"
+fi
+
 status=0
-if [ "$got_tag" != "v$want_version" ]; then
-  echo "core submodule is at $got_tag, but build.rs CORE_VERSION expects v$want_version" >&2
+if [ -z "$tag_commit" ]; then
+  echo "core has no tag $want_tag, locally or on origin, but build.rs CORE_VERSION expects $want_version" >&2
+  status=1
+elif [ "$tag_commit" != "$head_commit" ]; then
+  echo "core submodule is at $got_commit, but tag $want_tag is at $(git -C "$core" rev-parse --short="${#want_commit}" "$tag_commit")" >&2
   status=1
 fi
 if [ "$got_commit" != "$want_commit" ]; then
