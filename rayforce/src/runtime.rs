@@ -95,7 +95,18 @@ pub fn get_global(name: &str) -> Result<Value> {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        unsafe { sys::ray_runtime_destroy(self.rt) };
+        unsafe {
+            // The poll belongs to the runtime, and closing a selector releases
+            // engine objects held for it — so it has to go down first, while
+            // the heap is still there. `ray_runtime_destroy` does not do this
+            // itself, so a process that only ever used a `TcpClient` leaked it.
+            let poll = sys::ray_runtime_get_poll();
+            if !poll.is_null() {
+                sys::ray_runtime_set_poll(std::ptr::null_mut());
+                sys::ray_poll_destroy(poll.cast());
+            }
+            sys::ray_runtime_destroy(self.rt);
+        }
         LIVE.store(false, Ordering::SeqCst);
     }
 }
