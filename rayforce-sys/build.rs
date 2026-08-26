@@ -56,6 +56,8 @@ const CORE_PRIVATE_HEADERS: &[&str] = &[
     "store/serde.h",
     "core/runtime.h",
     "core/ipc.h",
+    "core/poll.h",
+    "lang/env.h",
 ];
 
 /// Symbols the safe crate calls that `include/rayforce.h` does not declare.
@@ -89,6 +91,22 @@ const INTERNAL_FNS: &[&str] = &[
     "ray_error_msg",
     // src/core/ipc.h — whether a handle still names a live connection
     "ray_ipc_tx_info",
+    // src/core/poll.h — resolve a selector id. Returns NULL once the rx machine
+    // has deregistered one, which is how a peer disconnect is observed: there is
+    // no error, the id simply stops resolving. Pulls in `ray_selector` with its
+    // real layout, deliberately — `data` is the per-connection state and doubles
+    // as that connection's identity, and a layout copied by hand is exactly the
+    // kind of thing that goes wrong silently.
+    "ray_poll_get",
+    // src/lang/env.h — wrap a native function as a callable ray_t, and bind it
+    // into the global environment so a pushed frame naming it dispatches there.
+    // Both binders are needed: ray_env_bind walks the dotted-segment dicts,
+    // while rayforce-q's inbound symbol lookup hits the FLAT binding
+    // (rayforce-q's own embed/rayforce_q.c calls both).
+    "ray_fn_unary",
+    "ray_fn_vary",
+    "ray_env_bind",
+    "ray_env_bind_flat",
 ];
 
 fn main() {
@@ -120,12 +138,19 @@ fn main() {
     sanitize_libclang_path();
     build_core_lib(&core, core_is_vendored);
 
-    // --- Q IPC client (rayforce-q's q.c) ---
-    // Linked BEFORE librayforce so its undefined `ray_*` symbols resolve from
-    // the core archive. Needs the core's private `src/` on the include path
-    // (`table/sym.h`).
+    // --- Q IPC client + server (rayforce-q's q.c / q_server.c) ---
+    // Linked BEFORE librayforce so their undefined `ray_*` symbols resolve from
+    // the core archive. Both need the core's private `src/` on the include path:
+    // `q.c` for `table/sym.h`, `q_server.c` for `core/poll.h` and `lang/env.h`.
+    //
+    // `q_server.c` is what makes a *subscription* possible. `q.c`'s client is
+    // blocking request/response, so a frame the peer pushes unsolicited would be
+    // read as the answer to the next `q_send`. `q_conn_attach` hands the fd to a
+    // rayforce poll instead, which reads every frame and routes it by message
+    // type. Requires rayforce-q >= 2.1.0.
     let q_src = q_src_dir();
     let q_c = q_src.join("q.c");
+    let q_server_c = q_src.join("q_server.c");
     assert!(
         q_c.exists(),
         "rayforce-q client not found at {}.\n\
@@ -134,15 +159,23 @@ fn main() {
          To build against a different checkout, point RAYFORCE_Q_SRC at it.",
         q_c.display()
     );
+    assert!(
+        q_server_c.exists(),
+        "rayforce-q server not found at {}.\n\
+         It ships with rayforce-q >= 2.1.0; older checkouts have only q.c.",
+        q_server_c.display()
+    );
     cc::Build::new()
         .file(&q_c)
+        .file(&q_server_c)
         .include(&q_src)
         .include(&include)
         .include(core.join("src"))
         .warnings(false)
         .compile("rayforce_q");
-    println!("cargo:rerun-if-changed={}", q_c.display());
-    println!("cargo:rerun-if-changed={}", q_src.join("q.h").display());
+    for f in ["q.c", "q.h", "q_server.c", "q_server.h"] {
+        println!("cargo:rerun-if-changed={}", q_src.join(f).display());
+    }
 
     // --- linking ---
     println!("cargo:rustc-link-search=native={}", core.display());
