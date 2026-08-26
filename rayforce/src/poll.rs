@@ -51,6 +51,30 @@ use crate::error::{RayError, Result};
 /// returns an error instead of touching a destroyed loop. The check is safe to
 /// trust because it happens before the pointer is dereferenced and nothing can
 /// drop the runtime in between — this is all one thread.
+///
+/// # Safety
+///
+/// `!Send`/`!Sync`, and must stay so, for two reasons that have to hold at
+/// once. Every frame this loop reads is decoded into engine objects, which
+/// belong to the thread that owns the runtime — and the liveness check above is
+/// only trustworthy while nothing else can tear the runtime down between it and
+/// the dereference. On top of that, `!Send` is now what confines a `Poll` to
+/// its scope: make this type `Send` and `Runtime::scope` would happily let one
+/// out, with no error until the first call on a destroyed loop.
+///
+/// ```compile_fail
+/// fn assert_send<T: Send>() {}
+/// assert_send::<rayforce::Poll>();
+/// ```
+/// ```compile_fail
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<rayforce::Poll>();
+/// ```
+/// Control — `compile_fail` passes on *any* build failure, a rename included:
+/// ```
+/// fn assert_exists<T>() {}
+/// assert_exists::<rayforce::Poll>();
+/// ```
 pub struct Poll {
     ptr: *mut sys::ray_poll_t,
     _not_send: PhantomData<*mut ()>,

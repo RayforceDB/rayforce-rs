@@ -258,6 +258,30 @@ impl Drop for QConnection {
 /// Borrows the [`Poll`] it runs on, so it cannot outlive the event loop that
 /// owns its socket — the teardown order that C callers have to remember is a
 /// compile error here.
+///
+/// # Safety
+///
+/// `!Send`/`!Sync`, and must stay so, for two reasons at once: it decodes
+/// frames into engine objects, which belong to the thread that owns the
+/// runtime, and `!Send` is what keeps a `Subscription` inside its
+/// [`crate::Runtime::scope`] — make it `Send` and one could be returned out of
+/// the closure, to be used against a torn-down loop. The explicit `'static`
+/// matters — written bare, `Subscription` fails to build for a missing lifetime
+/// rather than for the bound, and `compile_fail` cannot tell those apart.
+///
+/// ```compile_fail
+/// fn assert_send<T: Send>() {}
+/// assert_send::<rayforce::Subscription<'static>>();
+/// ```
+/// ```compile_fail
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<rayforce::Subscription<'static>>();
+/// ```
+/// Control — `compile_fail` passes on *any* build failure, a rename included:
+/// ```
+/// fn assert_exists<T>() {}
+/// assert_exists::<rayforce::Subscription<'static>>();
+/// ```
 pub struct Subscription<'p> {
     poll: &'p Poll,
     /// The poll selector this connection was registered under.
