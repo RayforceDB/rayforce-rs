@@ -114,8 +114,32 @@ cargo build
 cargo test
 ```
 
-To build against a core you are changing, point the build script at your own checkout.
-These take precedence over the vendored copies:
+### Choosing the core version
+
+Each release links one pinned core version. It lives in two places that must agree — the
+`rayforce-sys/vendor/rayforce` submodule, and the `CORE_VERSION` / `CORE_COMMIT` constants
+in `rayforce-sys/build.rs` that get stamped into `librayforce.a` (a crate unpacked from
+crates.io has no git history for the core's Makefile to read a version from).
+
+To move the pin, move both:
+
+```sh
+git -C rayforce-sys/vendor/rayforce fetch --tags
+git -C rayforce-sys/vendor/rayforce checkout v2.6.0
+git add rayforce-sys/vendor/rayforce
+
+git -C rayforce-sys/vendor/rayforce rev-parse --short=7 HEAD   # CORE_COMMIT
+$EDITOR rayforce-sys/build.rs                                  # CORE_VERSION, CORE_COMMIT
+
+./scripts/check-vendored-pin.sh    # names the mismatch if they disagree
+cargo test --workspace
+```
+
+`rayforce-sys/vendor/rayforce-q` works the same way, minus the constants — nothing is
+stamped from it.
+
+To build against a core you are changing instead, point the build script at your own
+checkout. These take precedence over the vendored copies:
 
 ```sh
 export RAYFORCE_SRC=/path/to/rayforce
