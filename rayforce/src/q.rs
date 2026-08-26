@@ -21,23 +21,31 @@ use std::marker::PhantomData;
 use rayforce_sys as sys;
 
 use crate::error::{check, RayError, Result};
+use crate::runtime::assert_live;
 use crate::value::Value;
 
 /// An open connection to a Q server. Closed on drop.
 ///
-/// `!Send`/`!Sync`: `execute` interns symbols and builds engine objects, both
-/// of which belong to the thread that owns the [`crate::Runtime`]. Moving one
-/// to another thread must not compile:
+/// Confined to its [`crate::Runtime::scope`], like a [`Value`]: `q_close` runs
+/// on drop and reaches into the runtime, so the heap has to still be mapped
+/// then. Being `!Send` is what keeps it inside — the bounds on `Runtime::scope`
+/// are spelled in terms of `Send`.
+///
+/// # Safety
+///
+/// `!Send`/`!Sync`, and must stay so, twice over: `execute` interns symbols and
+/// builds engine objects, which belong to the thread that owns the
+/// [`crate::Runtime`]; and that marker is also what confines it to its scope.
 ///
 /// ```compile_fail
 /// fn assert_send<T: Send>() {}
 /// assert_send::<rayforce::QConnection>();
 /// ```
-///
-/// The control for that test — identical but for the `Send` bound. A
-/// `compile_fail` block passes whenever the code fails to build *for any
-/// reason*, so without this a renamed type or a typo would read as a pass:
-///
+/// ```compile_fail
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<rayforce::QConnection>();
+/// ```
+/// Control — `compile_fail` passes on *any* build failure, a rename included:
 /// ```
 /// fn assert_exists<T>() {}
 /// assert_exists::<rayforce::QConnection>();
@@ -63,6 +71,7 @@ impl QConnection {
         password: &str,
         timeout_ms: i32,
     ) -> Result<Self> {
+        assert_live("QConnection::connect");
         let host_c = CString::new(host).map_err(|_| RayError::binding("Q host contains NUL"))?;
         let user_c = CString::new(user).map_err(|_| RayError::binding("Q user contains NUL"))?;
         let pass_c =
@@ -117,6 +126,9 @@ impl QConnection {
 
 impl Drop for QConnection {
     fn drop(&mut self) {
+        // Closing releases engine objects held for the connection, so this has
+        // to run while the heap is still mapped. It does: a connection cannot
+        // leave the scope that owns the heap.
         unsafe { sys::q_close(self.fd) };
     }
 }
@@ -130,6 +142,7 @@ impl Drop for QConnection {
 /// and must run on the thread that owns the [`crate::Runtime`] (like every
 /// other constructor in this crate). A Q server-side error surfaces as `Err`.
 pub fn decode_response(msg: &[u8]) -> Result<Value> {
+    assert_live("q::decode_response");
     // q_header_t (q.c): endianness, msgtype, compressed, reserved, u32 size.
     // `size` counts the whole message, header included. Little-endian wire only.
     const HEADER_LEN: usize = 8;

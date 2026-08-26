@@ -142,3 +142,25 @@ fn connect_failure_is_an_error() {
     })
     .unwrap();
 }
+
+#[test]
+fn a_client_is_closed_before_its_scope_ends() {
+    // The hole no generation check ever covered: `TcpClient::drop` calls
+    // `ray_ipc_close`, which reaches into the engine, and nothing ordered it
+    // against the unmap. The scope does: the closure's locals are dropped
+    // before it returns, and only then is the runtime torn down. Left implicit
+    // on purpose — an explicit `drop(client)` would not test the ordering.
+    let bin = require_binary!();
+    let port = free_port();
+    let _server = spawn_server(&bin, port);
+
+    Runtime::scope(|_rt| {
+        let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
+        assert_eq!(client.execute("(+ 1 2)").unwrap().as_i64().unwrap(), 3);
+        Ok(())
+    })
+    .unwrap();
+
+    // The close ran against a mapped heap, so the next scope starts cleanly.
+    Runtime::scope(|rt| rt.eval("1")?.as_i64()).unwrap();
+}

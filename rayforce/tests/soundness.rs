@@ -12,7 +12,7 @@
 //! `Runtime::scope` itself. What is left to check here is that the scope really
 //! does tear down, on every path out.
 
-use rayforce::{Runtime, Value};
+use rayforce::{Runtime, TcpClient, Value};
 
 #[test]
 fn values_built_in_a_scope_are_dropped_with_it() {
@@ -57,4 +57,19 @@ fn value_is_one_pointer_wide() {
         std::mem::size_of::<*mut ()>(),
         "Value grew a field — did a liveness tag creep back?"
     );
+}
+
+#[test]
+fn a_refused_connection_leaves_the_scope_usable() {
+    // Nothing is listening on port 1. A refused connection is routine, so it
+    // must leave nothing behind: the same scope keeps working, and the next one
+    // starts. The failing path returns before a `TcpClient` exists, so its
+    // `Drop` — which calls `ray_ipc_close` — must not run.
+    Runtime::scope(|rt| {
+        assert!(TcpClient::connect("127.0.0.1", 1, "", "").is_err());
+        assert_eq!(rt.eval("(+ 1 1)")?.as_i64()?, 2);
+        Ok(())
+    })
+    .unwrap();
+    Runtime::scope(|rt| rt.eval("1")?.as_i64()).unwrap();
 }
