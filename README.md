@@ -88,8 +88,8 @@ println!("{result}");
 
 ## Installation
 
-The crate links two local checkouts: the RayforceDB **core** (`RAYFORCE_SRC`) and the
-**rayforce-q** IPC client (`RAYFORCE_Q_SRC`). The build script compiles both and statically
+The RayforceDB **core** and the **rayforce-q** IPC client are C. Both ship inside the
+crate, so nothing is fetched at build time — the build script compiles them and statically
 links `librayforce.a`.
 
 ```toml
@@ -98,18 +98,29 @@ links `librayforce.a`.
 rayforce = { git = "https://github.com/RayforceDB/rayforce-rs" }
 ```
 
-```sh
-git clone https://github.com/RayforceDB/rayforce   ~/rayforce      # core
-git clone https://github.com/RayforceDB/rayforce-q ~/rayforce-q    # Q IPC client
+Requirements: a C toolchain (`make`, `clang`) and `libclang` for `bindgen`.
 
-export RAYFORCE_SRC=/path/to/rayforce       # default: ~/rayforce
-export RAYFORCE_Q_SRC=/path/to/rayforce-q   # default: ~/rayforce-q
+### Working on the bindings
+
+The C sources live in git submodules under `rayforce-sys/vendor/`, so a checkout needs
+them initialized:
+
+```sh
+git clone --recurse-submodules https://github.com/RayforceDB/rayforce-rs
+# in an existing clone:
+git submodule update --init --recursive
 
 cargo build
 cargo test
 ```
 
-Requirements: a C toolchain (`make`, `clang`) and `libclang` for `bindgen`.
+To build against a core you are changing, point the build script at your own checkout.
+These take precedence over the vendored copies:
+
+```sh
+export RAYFORCE_SRC=/path/to/rayforce
+export RAYFORCE_Q_SRC=/path/to/rayforce-q
+```
 
 `bindgen` locates `libclang` via `LIBCLANG_PATH`. This is deliberately **not** set in the
 repo's `.cargo/config.toml`. If bindgen can't auto-detect libclang, set it yourself:
