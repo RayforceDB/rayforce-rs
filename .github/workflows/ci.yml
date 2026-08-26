@@ -11,6 +11,16 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      # Both legs must report: a debug-flavour failure is a real memory bug and
+      # cancelling the release leg over it (or vice versa) hides half the story.
+      fail-fast: false
+      matrix:
+        # Which flavour of librayforce.a to link. `debug` compiles the core with
+        # -DDEBUG, arming the engine's stale retain/release detector (DFD) — see
+        # rayforce-sys/build.rs. ASan cannot see into the engine's mmap-backed
+        # pool allocator, so DFD is the only tool for this bug class.
+        core: [release, debug]
     steps:
       # The C core and the rayforce-q client are submodules under
       # rayforce-sys/vendor/, so this one checkout brings the whole build.
@@ -45,15 +55,23 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.core }}-${{ hashFiles('**/Cargo.toml') }}
 
+      # Lints are flavour-independent; running them twice only doubles the wait.
       - name: Format check
+        if: matrix.core == 'release'
         run: cargo fmt --all -- --check
 
       - name: Clippy
+        if: matrix.core == 'release'
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
+        env:
+          # Empty on the release leg. build.rs and the core's own dfd_enabled()
+          # both treat empty and "0" as off, so the release leg is unaffected.
+          RAYFORCE_CORE_DEBUG: ${{ matrix.core == 'debug' && '1' || '' }}
+          RAY_DFD: ${{ matrix.core == 'debug' && '1' || '' }}
         run: cargo test --workspace
 
       # The vendored sources must actually land in the .crate — that is the
