@@ -13,6 +13,7 @@
 //! ```
 
 use std::ffi::CString;
+use std::marker::PhantomData;
 
 use rayforce_sys as sys;
 
@@ -20,8 +21,27 @@ use crate::error::{check, RayError, Result};
 use crate::value::Value;
 
 /// An open connection to a Q server. Closed on drop.
+///
+/// `!Send`/`!Sync`: `execute` interns symbols and builds engine objects, both
+/// of which belong to the thread that owns the [`crate::Runtime`]. Moving one
+/// to another thread must not compile:
+///
+/// ```compile_fail
+/// fn assert_send<T: Send>() {}
+/// assert_send::<rayforce::QConnection>();
+/// ```
+///
+/// The control for that test — identical but for the `Send` bound. A
+/// `compile_fail` block passes whenever the code fails to build *for any
+/// reason*, so without this a renamed type or a typo would read as a pass:
+///
+/// ```
+/// fn assert_exists<T>() {}
+/// assert_exists::<rayforce::QConnection>();
+/// ```
 pub struct QConnection {
     fd: i32,
+    _not_send: PhantomData<*mut ()>,
 }
 
 impl QConnection {
@@ -63,7 +83,10 @@ impl QConnection {
                 "Q: connect to {host}:{port} {reason}"
             )));
         }
-        Ok(QConnection { fd })
+        Ok(QConnection {
+            fd,
+            _not_send: PhantomData,
+        })
     }
 
     /// Send a query string for remote evaluation; return the response decoded
