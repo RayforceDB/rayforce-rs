@@ -61,10 +61,25 @@ fn spawn_server(bin: &PathBuf, port: u16) -> Server {
     panic!("server did not become reachable on port {port}");
 }
 
+/// Whether a missing server binary is a hard error rather than a skip.
+///
+/// Skipping reports as a pass, which is indistinguishable from having run —
+/// so on its own it lets this file's coverage lapse unnoticed, and this is the
+/// only file that drives [`TcpClient`] against a real server. CI sets
+/// `RAYFORCE_REQUIRE_SERVER=1` after building the binary, so a path that stops
+/// resolving fails the job instead of quietly going green.
+fn server_required() -> bool {
+    matches!(std::env::var("RAYFORCE_REQUIRE_SERVER"), Ok(v) if !v.is_empty() && v != "0")
+}
+
 macro_rules! require_binary {
     () => {
         match binary_path() {
             Some(b) => b,
+            None if server_required() => panic!(
+                "RAYFORCE_REQUIRE_SERVER is set but no rayforce binary was found; \
+                 point RAYFORCE_BINARY at one or run `make release` in the core checkout"
+            ),
             None => {
                 let _ = writeln!(std::io::stderr(), "skipping IPC test: no rayforce binary");
                 return;
