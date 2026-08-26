@@ -21,6 +21,13 @@ jobs:
         # rayforce-sys/build.rs. ASan cannot see into the engine's mmap-backed
         # pool allocator, so DFD is the only tool for this bug class.
         core: [release, debug]
+    env:
+      # Job-scoped, not step-scoped: the core binary is built in its own step and
+      # must use the same flavour, or build.rs would see a flavour flip at
+      # `cargo test` time and `make clean` the binary away. Empty on the release
+      # leg — build.rs and the core's dfd_enabled() both read empty as off.
+      RAYFORCE_CORE_DEBUG: ${{ matrix.core == 'debug' && '1' || '' }}
+      RAY_DFD: ${{ matrix.core == 'debug' && '1' || '' }}
     steps:
       # The C core and the rayforce-q client are submodules under
       # rayforce-sys/vendor/, so this one checkout brings the whole build.
@@ -66,12 +73,43 @@ jobs:
         if: matrix.core == 'release'
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # tests/ipc.rs spawns a real server to exercise TcpClient — the path
+      # Runtime's poll teardown lives on. Without a binary it returns early and
+      # reports as a pass, so that coverage was silently absent from CI.
+      #
+      # Ordering matters: `cargo build` runs build.rs, which stages the vendored
+      # core into OUT_DIR and runs `make lib` there at this leg's flavour. That
+      # staged tree is what `make release` is pointed at, so it reuses those
+      # objects untouched and only adds main.c plus the link — a quarter second,
+      # not a second engine build. On the debug leg the engine objects carry DFD,
+      # so the server checks its own side of every exchange. (main.c itself is
+      # compiled at the Makefile's default RELEASE_CFLAGS either way. `-DDEBUG`
+      # reaches no struct in the public header — only the RAY_ASSERT_VALUE macro
+      # at rayforce.h:216 — so the two agree on layout.)
+      #
+      # The three make variables are read back out of build.rs rather than
+      # restated, the way scripts/check-vendored-pin.sh already reads them: the
+      # vendored build drops -Werror on purpose, and `git` resolving RAY_VERSION
+      # from inside OUT_DIR would stamp this repository's HEAD into the server
+      # binary instead of the core's.
+      - name: Build the core server binary
+        run: |
+          cargo build --workspace --tests
+          # Absolute: cargo runs each test binary with the cwd set to its own
+          # crate root, so a workspace-relative RAYFORCE_BINARY would not resolve.
+          CORE=$(ls -dt "$PWD"/target/debug/build/rayforce-sys-*/out/core 2>/dev/null | head -1)
+          if [ ! -f "$CORE/librayforce.a" ]; then
+            echo "::error::no staged core under target/debug/build — did build.rs run?"; exit 1
+          fi
+          field() { sed -n "s/^const $1: &str = \"\(.*\)\";\$/\1/p" rayforce-sys/build.rs; }
+          make -C "$CORE" release \
+            WARNS="$(field CORE_WARNS)" \
+            RAY_VERSION="$(field CORE_VERSION)" \
+            GIT_HASH="$(field CORE_COMMIT)"
+          echo "RAYFORCE_BINARY=$CORE/rayforce" >> "$GITHUB_ENV"
+          echo "RAYFORCE_REQUIRE_SERVER=1" >> "$GITHUB_ENV"
+
       - name: Test
-        env:
-          # Empty on the release leg. build.rs and the core's own dfd_enabled()
-          # both treat empty and "0" as off, so the release leg is unaffected.
-          RAYFORCE_CORE_DEBUG: ${{ matrix.core == 'debug' && '1' || '' }}
-          RAY_DFD: ${{ matrix.core == 'debug' && '1' || '' }}
         run: cargo test --workspace
 
       # The vendored sources must actually land in the .crate — that is the
