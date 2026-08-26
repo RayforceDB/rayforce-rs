@@ -24,6 +24,7 @@ mod ipc;
 mod lambda;
 mod list;
 mod ops;
+mod poll;
 pub mod q;
 mod query;
 mod raw;
@@ -41,7 +42,8 @@ pub use expr::{
 pub use ipc::TcpClient;
 pub use lambda::Fn;
 pub use ops::Operation;
-pub use q::QConnection;
+pub use poll::Poll;
+pub use q::{QConnection, Subscription};
 pub use query::{Select, Update};
 pub use runtime::{eval, eval_value, get_global, on_runtime_thread, set_global, Runtime};
 pub use table::Table;
