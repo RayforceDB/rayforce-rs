@@ -7,7 +7,8 @@ mix atoms, vectors, dicts, or even nested lists.
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{Runtime, Value};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## Construction

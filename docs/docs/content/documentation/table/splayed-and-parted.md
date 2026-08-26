@@ -14,19 +14,20 @@ enumerated symbol columns are written against.
 ```rust
 use rayforce::{Runtime, Table, Value};
 
-let _rt = Runtime::new()?;
+Runtime::scope(|_rt| {
+    let t = Table::new(
+        &["sym", "price", "size"],
+        &[
+            Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
+            Value::vec(&[101.5f64, 202.0, 303.25]),
+            Value::vec(&[10i64, 20, 30]),
+        ],
+    )?;
 
-let t = Table::new(
-    &["sym", "price", "size"],
-    &[
-        Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
-        Value::vec(&[101.5f64, 202.0, 303.25]),
-        Value::vec(&[10i64, 20, 30]),
-    ],
-)?;
-
-// this table has a symbol column, so supply a symfile path
-t.save_splayed("/tmp/db/trades", Some("/tmp/db/sym"))?;
+    // this table has a symbol column, so supply a symfile path
+    t.save_splayed("/tmp/db/trades", Some("/tmp/db/sym"))?;
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -38,13 +39,15 @@ t.save_splayed("/tmp/db/trades", Some("/tmp/db/sym"))?;
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-// numeric-only table: no symfile required
-let nums = Table::new(
-    &["a", "b"],
-    &[Value::vec(&[1i64, 2, 3]), Value::vec(&[1.0f64, 2.0, 3.0])],
-)?;
-nums.save_splayed("/tmp/db/nums", None)?;
+Runtime::scope(|_rt| {
+    // numeric-only table: no symfile required
+    let nums = Table::new(
+        &["a", "b"],
+        &[Value::vec(&[1i64, 2, 3]), Value::vec(&[1.0f64, 2.0, 3.0])],
+    )?;
+    nums.save_splayed("/tmp/db/nums", None)?;
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -55,13 +58,15 @@ nums.save_splayed("/tmp/db/nums", None)?;
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
-# t.save_splayed("/tmp/db/trades", Some("/tmp/db/sym"))?;
-let loaded = Table::load_splayed("/tmp/db/trades", Some("/tmp/db/sym"))?;
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
+    # t.save_splayed("/tmp/db/trades", Some("/tmp/db/sym"))?;
+    let loaded = Table::load_splayed("/tmp/db/trades", Some("/tmp/db/sym"))?;
 
-assert_eq!(loaded.shape(), (3, 3));
-assert_eq!(loaded.column("size")?.as_slice::<i64>()?, &[10, 20, 30]);
+    assert_eq!(loaded.shape(), (3, 3));
+    assert_eq!(loaded.column("size")?.as_slice::<i64>()?, &[10, 20, 30]);
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -74,11 +79,13 @@ partitions under `root` into a single table.
 
 ```rust
 # use rayforce::{Runtime, Table};
-# let _rt = Runtime::new()?;
-# let _ = || -> rayforce::Result<()> {
-let trades = Table::load_parted("/tmp/pdb", "trades")?;
-println!("{} rows across all partitions", trades.nrows());
-# Ok(()) };
+Runtime::scope(|_rt| {
+    # let _ = || -> rayforce::Result<()> {
+    let trades = Table::load_parted("/tmp/pdb", "trades")?;
+    println!("{} rows across all partitions", trades.nrows());
+    # Ok(()) };
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 

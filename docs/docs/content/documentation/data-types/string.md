@@ -7,7 +7,8 @@ or high-cardinality text.
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{Runtime, Value, Str};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## Atoms

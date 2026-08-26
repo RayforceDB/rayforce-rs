@@ -29,37 +29,81 @@ managed by Rust's RAII:
 
 ```rust
 use rayforce::{Runtime, Value};
-let _rt = Runtime::new()?;
-
-let a = Value::vec(&[1i64, 2, 3]);
-let b = a.clone();   // same payload, refcount += 1
-drop(b);             // refcount -= 1; `a` still valid
-assert_eq!(a.as_slice::<i64>()?, &[1, 2, 3]);
+Runtime::scope(|_rt| {
+    let a = Value::vec(&[1i64, 2, 3]);
+    let b = a.clone();   // same payload, refcount += 1
+    drop(b);             // refcount -= 1; `a` still valid
+    assert_eq!(a.as_slice::<i64>()?, &[1, 2, 3]);
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
 Because lifetime is handled for you, there is no manual `free` and no
-use-after-free: the borrow checker and `Drop` keep handles honest.
+use-after-free: `Drop` keeps handles honest.
+
+That refcount governs the *object*. The *heap* those objects live in is a
+separate matter: `ray_runtime_destroy` unmaps every pool without consulting any
+object's refcount, so an object with five handles is unmapped exactly like one
+with one. Nothing checked at the point of use could make a surviving handle safe
+— the pointer is what became invalid. Instead the runtime's life is bounded so
+such a handle is never produced; see below.
 
 ## :material-cpu-64-bit: Single runtime, single thread, `!Send`
 
 The RayforceDB core runs on a single thread with a thread-local VM and permits
 **one live `Runtime` per process**. To make this safe in Rust:
 
-- `Runtime::new()` returns an RAII guard. Hold it alive for as long as you touch
-  any `Value`; dropping it tears the runtime down.
-- `Value`, `Table`, and `TcpClient` are **`!Send`** and **`!Sync`**. They cannot
-  be moved or shared across threads, which statically prevents you from touching
-  the engine from a thread other than the one that owns the runtime.
+- `Runtime::scope(|rt| …)` is the only way in. It creates the runtime, hands
+  your closure a `&Runtime` — which you cannot drop or move out of — and tears
+  it down when the closure returns, on the error path and on unwind alike.
+  Values built inside are dropped first, because the closure's locals go first.
+- `Value`, `Table`, `TcpClient` and `QConnection` are **`!Send`** and
+  **`!Sync`**. They cannot be moved or shared across threads, which statically
+  prevents you from touching the engine from a thread other than the one that
+  owns the runtime.
 
 ```rust
 use rayforce::{Runtime, Value};
 
-let _rt = Runtime::new()?;   // start here, in every runtime-dependent program
-let v = Value::i64(42);
-// `v` stays on this thread — it is !Send by design.
+Runtime::scope(|_rt| {
+    let v = Value::i64(42);
+    // `v` stays on this thread — it is !Send by design.
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
+
+### What keeps a `Value` inside its scope
+
+The same `!Send` marker, read as a bound. `Runtime::scope` requires `Send` of
+its return type and of the closure, and nothing engine-backed satisfies it:
+
+```rust
+use rayforce::{Runtime, Value};
+
+// Returning one: rejected, `Value` is !Send.
+// let v = Runtime::scope(|rt| rt.eval("(+ 1 1)"))?;
+
+// Assigning one outward: rejected too — a closure is Send only if every
+// capture is, and this one captures `&mut Option<Value>`.
+// let mut out = None;
+// Runtime::scope(|rt| { out = Some(rt.eval("1")?); Ok(()) })?;
+
+// Extracting plain data is the way through.
+let sum = Runtime::scope(|rt| Ok(rt.eval("(+ 1 1)")?.as_i64()?))?;
+assert_eq!(sum, 2);
+# Ok::<(), rayforce::RayError>(())
+```
+
+Both rejections read `required by a bound in Runtime::scope`. The cost is that
+an unrelated `!Send` capture — an `Rc`, a `RefCell` borrow — is refused too,
+with a diagnostic about threads when no thread is involved; construct such
+values inside the closure, or move them in.
+
+Calling `eval` or a constructor with no scope open panics rather than working
+against a runtime nobody owns, and a nested `Runtime::scope` returns an error
+rather than starting a second runtime.
 
 !!! note "Why single-thread?"
     The engine's VM state is thread-local. Rather than hide this behind locks,
@@ -82,11 +126,12 @@ conversion, no intermediate `Vec`:
 
 ```rust
 use rayforce::{Runtime, Value};
-let _rt = Runtime::new()?;
-
-let prices = Value::vec(&[100.0f64, 200.0, 110.0]);
-let slice: &[f64] = prices.as_slice()?;   // borrows engine memory, no copy
-assert_eq!(slice, &[100.0, 200.0, 110.0]);
+Runtime::scope(|_rt| {
+    let prices = Value::vec(&[100.0f64, 200.0, 110.0]);
+    let slice: &[f64] = prices.as_slice()?;   // borrows engine memory, no copy
+    assert_eq!(slice, &[100.0, 200.0, 110.0]);
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 

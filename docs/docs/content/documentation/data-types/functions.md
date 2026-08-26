@@ -8,7 +8,8 @@ wraps a compiled function object built from Rayfall source — for example
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{Fn, Runtime, Value};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## Construction

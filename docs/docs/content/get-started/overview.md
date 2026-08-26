@@ -9,26 +9,27 @@ practical overhead.
 ```rust
 use rayforce::{col, sum, Runtime, Table, Value};
 
-let _rt = Runtime::new()?;                        // one live runtime per process
+Runtime::scope(|_rt| {
+    let t = Table::new(
+        &["sym", "price", "size"],
+        &[
+            Value::sym_vec(&["AAPL", "MSFT", "AAPL", "GOOG"]),
+            Value::vec(&[100.0f64, 200.0, 110.0, 300.0]),
+            Value::vec(&[10i64, 20, 30, 40]),
+        ],
+    )?;
 
-let t = Table::new(
-    &["sym", "price", "size"],
-    &[
-        Value::sym_vec(&["AAPL", "MSFT", "AAPL", "GOOG"]),
-        Value::vec(&[100.0f64, 200.0, 110.0, 300.0]),
-        Value::vec(&[10i64, 20, 30, 40]),
-    ],
-)?;
+    // select total:sum size by sym from t where price > 150.0
+    let totals = t
+        .select()
+        .agg("total", sum(col("size")))
+        .filter(col("price").gt(150.0))
+        .by("sym")
+        .execute()?;
 
-// select total:sum size by sym from t where price > 150.0
-let totals = t
-    .select()
-    .agg("total", sum(col("size")))
-    .filter(col("price").gt(150.0))
-    .by("sym")
-    .execute()?;
-
-println!("{totals}");
+    println!("{totals}");
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -56,25 +57,26 @@ is an RAII guard: keep it alive for as long as you touch any `Value`.
 ```rust
 use rayforce::{col, Runtime, Table, Value};
 
-let _rt = Runtime::new()?;
+Runtime::scope(|_rt| {
+    // Build a table from typed columns.
+    let trades = Table::new(
+        &["sym", "price", "size"],
+        &[
+            Value::sym_vec(&["AAPL", "MSFT", "AAPL"]),
+            Value::vec(&[100.0f64, 200.0, 110.0]),
+            Value::vec(&[10i64, 20, 30]),
+        ],
+    )?;
 
-// Build a table from typed columns.
-let trades = Table::new(
-    &["sym", "price", "size"],
-    &[
-        Value::sym_vec(&["AAPL", "MSFT", "AAPL"]),
-        Value::vec(&[100.0f64, 200.0, 110.0]),
-        Value::vec(&[10i64, 20, 30]),
-    ],
-)?;
+    // Filter and project with the fluent query DSL.
+    let big = trades
+        .select()
+        .filter(col("size").gt(15i64))
+        .execute()?;
 
-// Filter and project with the fluent query DSL.
-let big = trades
-    .select()
-    .filter(col("size").gt(15i64))
-    .execute()?;
-
-println!("{big}");
+    println!("{big}");
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 

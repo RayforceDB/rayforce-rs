@@ -11,18 +11,19 @@ per column. The columns are matched to names by position.
 ```rust
 use rayforce::{Runtime, Table, Value};
 
-let _rt = Runtime::new()?;
+Runtime::scope(|_rt| {
+    let t = Table::new(
+        &["sym", "price", "size"],
+        &[
+            Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),  // symbol column
+            Value::vec(&[101.5f64, 202.0, 303.25]),     // f64 column
+            Value::vec(&[10i64, 20, 30]),               // i64 column
+        ],
+    )?;
 
-let t = Table::new(
-    &["sym", "price", "size"],
-    &[
-        Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),  // symbol column
-        Value::vec(&[101.5f64, 202.0, 303.25]),     // f64 column
-        Value::vec(&[10i64, 20, 30]),               // i64 column
-    ],
-)?;
-
-assert_eq!(t.shape(), (3, 3));   // (rows, cols)
+    assert_eq!(t.shape(), (3, 3));   // (rows, cols)
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -57,13 +58,15 @@ let syms   = Value::sym_vec(&["a", "b", "c"]);
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-// mismatched row counts -> Err
-let bad = Table::new(
-    &["a", "b"],
-    &[Value::vec(&[1i64, 2, 3]), Value::vec(&[10i64, 20])],
-);
-assert!(bad.is_err());
+Runtime::scope(|_rt| {
+    // mismatched row counts -> Err
+    let bad = Table::new(
+        &["a", "b"],
+        &[Value::vec(&[1i64, 2, 3]), Value::vec(&[10i64, 20])],
+    );
+    assert!(bad.is_err());
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -81,16 +84,18 @@ freely in both directions:
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["x"], &[Value::vec(&[1i64, 2, 3])])?;
-let v: Value = t.clone().into_value();
-assert!(v.is_table());
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["x"], &[Value::vec(&[1i64, 2, 3])])?;
+    let v: Value = t.clone().into_value();
+    assert!(v.is_table());
 
-let back: Table = v.as_table()?;             // or Table::from_value(v)
-assert_eq!(back.nrows(), 3);
+    let back: Table = v.as_table()?;             // or Table::from_value(v)
+    assert_eq!(back.nrows(), 3);
 
-// non-table values cannot become a Table
-assert!(Value::i64(5).as_table().is_err());
+    // non-table values cannot become a Table
+    assert!(Value::i64(5).as_table().is_err());
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 

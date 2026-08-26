@@ -11,7 +11,8 @@ Rayforce has three temporal types, all measured against a **2000-01-01** epoch:
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{Runtime, Value};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## Raw constructors and readers

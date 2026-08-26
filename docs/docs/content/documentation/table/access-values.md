@@ -6,16 +6,17 @@ shape, pull out whole columns, or read individual cells.
 ```rust
 use rayforce::{Runtime, Table, Value};
 
-let _rt = Runtime::new()?;
-
-let t = Table::new(
-    &["sym", "price", "size"],
-    &[
-        Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
-        Value::vec(&[101.5f64, 202.0, 303.25]),
-        Value::vec(&[10i64, 20, 30]),
-    ],
-)?;
+Runtime::scope(|_rt| {
+    let t = Table::new(
+        &["sym", "price", "size"],
+        &[
+            Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
+            Value::vec(&[101.5f64, 202.0, 303.25]),
+            Value::vec(&[10i64, 20, 30]),
+        ],
+    )?;
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -30,12 +31,14 @@ let t = Table::new(
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
-assert_eq!(t.ncols(), 3);
-assert_eq!(t.nrows(), 3);
-assert_eq!(t.shape(), (3, 3));
-assert_eq!(t.column_names(), vec!["sym", "price", "size"]);
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
+    assert_eq!(t.ncols(), 3);
+    assert_eq!(t.nrows(), 3);
+    assert_eq!(t.shape(), (3, 3));
+    assert_eq!(t.column_names(), vec!["sym", "price", "size"]);
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -51,15 +54,17 @@ Lookups that miss return an `Err`.
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
-let price = t.column("price")?;        // by name
-let size  = t.column_at(2)?;           // by index
-let all   = t.columns()?;              // Vec<Value>, in column order
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
+    let price = t.column("price")?;        // by name
+    let size  = t.column_at(2)?;           // by index
+    let all   = t.columns()?;              // Vec<Value>, in column order
 
-assert_eq!(all.len(), 3);
-assert!(t.column("nope").is_err());    // unknown name -> Err
-assert!(t.column_at(9).is_err());      // out of range -> Err
+    assert_eq!(all.len(), 3);
+    assert!(t.column("nope").is_err());    // unknown name -> Err
+    assert!(t.column_at(9).is_err());      // out of range -> Err
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -71,13 +76,15 @@ type (one of `u8 / i16 / i32 / i64 / f32 / f64`).
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
-let price: &[f64] = t.column("price")?.as_slice()?;
-assert_eq!(price, &[101.5, 202.0, 303.25]);
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
+    let price: &[f64] = t.column("price")?.as_slice()?;
+    assert_eq!(price, &[101.5, 202.0, 303.25]);
 
-let size: &[i64] = t.column_at(2)?.as_slice()?;
-assert_eq!(size, &[10, 20, 30]);
+    let size: &[i64] = t.column_at(2)?.as_slice()?;
+    assert_eq!(size, &[10, 20, 30]);
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -94,13 +101,15 @@ then read with the matching `as_*` accessor.
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
-let sym0 = t.column("sym")?.get(0)?.as_sym()?;
-assert_eq!(sym0, "AAPL");
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
+    let sym0 = t.column("sym")?.get(0)?.as_sym()?;
+    assert_eq!(sym0, "AAPL");
 
-let price1 = t.column("price")?.get(1)?.as_f64()?;
-assert_eq!(price1, 202.0);
+    let price1 = t.column("price")?.get(1)?.as_f64()?;
+    assert_eq!(price1, 202.0);
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 

@@ -6,8 +6,10 @@
 !!! note "Assume a live runtime and the trades table"
     ```rust
     use rayforce::{Runtime, Table, Value};
-    let _rt = Runtime::new()?;
-    let t = trades(); // sym / price / size — see the Overview
+    Runtime::scope(|_rt| {
+        let t = trades(); // sym / price / size — see the Overview
+        Ok(())
+    })?;
     ```
 
 ## `insert_row` — a single record

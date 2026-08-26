@@ -7,8 +7,10 @@ columns, filters, grouping, and ordering, then call `.execute()` to get a
 !!! note "Assume a live runtime and the trades table"
     ```rust
     use rayforce::{col, sum, avg, count, min, max, Runtime, Table, Value};
-    let _rt = Runtime::new()?;
-    let t = trades(); // sym / price / size — see the Overview
+    Runtime::scope(|_rt| {
+        let t = trades(); // sym / price / size — see the Overview
+        Ok(())
+    })?;
     ```
 
 ## Builder methods

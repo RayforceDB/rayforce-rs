@@ -139,25 +139,26 @@ View on GitHub
 ```rust
 use rayforce::{col, sum, Runtime, Table, Value};
 
-let _rt = Runtime::new()?;
+Runtime::scope(|_rt| {
+    let t = Table::new(
+        &["sym", "price", "size"],
+        &[
+            Value::sym_vec(&["AAPL", "MSFT", "AAPL", "GOOG"]),
+            Value::vec(&[100.0f64, 200.0, 110.0, 300.0]),
+            Value::vec(&[10i64, 20, 30, 40]),
+        ],
+    )?;
 
-let t = Table::new(
-    &["sym", "price", "size"],
-    &[
-        Value::sym_vec(&["AAPL", "MSFT", "AAPL", "GOOG"]),
-        Value::vec(&[100.0f64, 200.0, 110.0, 300.0]),
-        Value::vec(&[10i64, 20, 30, 40]),
-    ],
-)?;
+    let totals = t
+        .select()
+        .agg("total", sum(col("size")))
+        .filter(col("price").gt(150.0))
+        .by("sym")
+        .execute()?;
 
-let totals = t
-    .select()
-    .agg("total", sum(col("size")))
-    .filter(col("price").gt(150.0))
-    .by("sym")
-    .execute()?;
-
-println!("{totals}");
+    println!("{totals}");
+    Ok(())
+})?;
 ```
 
 </div>

@@ -13,7 +13,8 @@ columns into [tables](table/overview.md), shape them with a fluent
 
     ```rust
     use rayforce::{Runtime, Value};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## :material-map-outline: Map of the documentation

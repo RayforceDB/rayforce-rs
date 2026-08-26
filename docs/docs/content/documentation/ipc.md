@@ -7,7 +7,8 @@ local) RayforceDB instance and exchange `Value`s with it.
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{Runtime, TcpClient, Value};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## :material-server: Running a server
@@ -34,9 +35,10 @@ call returns `Result<TcpClient>`, so a failed connection is an error you handle.
 
 ```rust
 use rayforce::{Runtime, TcpClient};
-let _rt = Runtime::new()?;
-
-let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
+Runtime::scope(|_rt| {
+    let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -50,17 +52,18 @@ returns the result as a `Value`.
 
 ```rust
 use rayforce::{Runtime, TcpClient};
-let _rt = Runtime::new()?;
+Runtime::scope(|_rt| {
+    let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
 
-let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
+    // A scalar result.
+    let sum = client.execute("(+ 1 2)")?;
+    assert_eq!(sum.as_i64()?, 3);
 
-// A scalar result.
-let sum = client.execute("(+ 1 2)")?;
-assert_eq!(sum.as_i64()?, 3);
-
-// A vector result, read back zero-copy.
-let v = client.execute("(til 5)")?;
-assert_eq!(v.as_slice::<i64>()?, &[0, 1, 2, 3, 4]);
+    // A vector result, read back zero-copy.
+    let v = client.execute("(til 5)")?;
+    assert_eq!(v.as_slice::<i64>()?, &[0, 1, 2, 3, 4]);
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -68,10 +71,12 @@ Server-side errors come back as a `Result::Err`:
 
 ```rust
 use rayforce::{Runtime, TcpClient};
-let _rt = Runtime::new()?;
-let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
+Runtime::scope(|_rt| {
+    let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
 
-assert!(client.execute("(undefined_symbol_xyz)").is_err());
+    assert!(client.execute("(undefined_symbol_xyz)").is_err());
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -82,11 +87,13 @@ value to the server, waits for the response, and returns it as a `Value`:
 
 ```rust
 use rayforce::{Runtime, TcpClient, Value};
-let _rt = Runtime::new()?;
-let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
+Runtime::scope(|_rt| {
+    let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
 
-let payload = Value::vec(&[1i64, 2, 3]);
-let reply = client.send(&payload)?;
+    let payload = Value::vec(&[1i64, 2, 3]);
+    let reply = client.send(&payload)?;
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -95,10 +102,12 @@ value and returns immediately:
 
 ```rust
 use rayforce::{Runtime, TcpClient, Value};
-let _rt = Runtime::new()?;
-let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
+Runtime::scope(|_rt| {
+    let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
 
-client.send_async(&Value::sym("ping"))?;   // returns () on success
+    client.send_async(&Value::sym("ping"))?;   // returns () on success
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -108,17 +117,17 @@ client.send_async(&Value::sym("ping"))?;   // returns () on success
 use rayforce::{Runtime, TcpClient};
 
 fn main() -> rayforce::Result<()> {
-    let _rt = Runtime::new()?;
+    Runtime::scope(|_rt| {
+        // Connect to a server started with: rayforce -p 5000
+        let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
 
-    // Connect to a server started with: rayforce -p 5000
-    let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
+        // Run a query remotely.
+        let result = client.execute("(+ 1 2)")?;
+        println!("server says: {}", result.as_i64()?);
 
-    // Run a query remotely.
-    let result = client.execute("(+ 1 2)")?;
-    println!("server says: {}", result.as_i64()?);
-
-    // The connection closes automatically when `client` is dropped.
-    Ok(())
+        // The connection closes automatically when `client` is dropped.
+        Ok(())
+    })
 }
 ```
 
