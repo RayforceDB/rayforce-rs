@@ -175,8 +175,85 @@ fn main() -> rayforce::Result<()> {
 }
 ```
 
+## :material-rss: Subscribing to a push feed
+
+`TcpClient` and `QConnection` are both request/response: you ask, the server
+answers. A *subscription* inverts that — you ask once, and the peer pushes for
+the rest of the day. The blocking clients cannot express it, because a frame the
+peer pushes unsolicited would be read as the answer to your next call.
+
+The fix is to give the socket to the event loop. `Poll` is that loop; attaching
+a connection to it means the loop owns the reads and routes each frame by
+message type — a response wakes the call parked on it, and anything else is
+dispatched to the function the publisher named. You bind that name.
+
+```rust,no_run
+use rayforce::{env, q::QConnection, Poll, Runtime, Value};
+
+// The push handler. A kdb+ tickerplant sends `(`upd;`trade;tbl)` — two
+// arguments — while a dict-form publisher sends `(`upd;dict)` — one. Binding
+// it *vary* is what lets one build serve both: a fixed arity does not error,
+// it silently drops every frame from the other kind of peer.
+struct OnUpd;
+
+impl env::VaryFn for OnUpd {
+    fn call(args: env::Args<'_>) -> Value {
+        println!("batch with {} argument(s)", args.len());
+        Value::null()        // an async push expects no reply
+    }
+}
+
+fn main() -> rayforce::Result<()> {
+    Runtime::scope(|_rt| {
+        let poll = Poll::install()?;
+        env::bind_vary::<OnUpd>("upd")?;
+
+        let sub = QConnection::connect("127.0.0.1", 5010)?.attach(&poll)?;
+        sub.execute(".u.sub[`trade;`]")?;
+
+        // A disconnect is not an error and does not interrupt the loop: the
+        // peer simply stops resolving. Slice the loop and check between slices,
+        // or a process whose connection was reaped sits there looking healthy
+        // while receiving nothing.
+        while sub.is_alive() {
+            poll.run_for(200)?;   // `on_upd` fires from inside here
+        }
+        println!("peer disconnected");
+        Ok(())
+    })
+}
+```
+
+!!! note "A handler is a type, not a closure"
+
+    The core takes a bare C function pointer with no user-data argument, so
+    there is nowhere to put a closure's captures. Binding a *type* sidesteps
+    that — each handler gets its own monomorphized trampoline, so the function
+    address carries the identity a data pointer normally would. State a handler
+    needs lives in statics.
+
+    The trampoline owns what is easy to get wrong: it borrows the argument
+    array without taking ownership, and catches a panic before it can unwind
+    into C, replying null instead. So one malformed frame cannot wedge the
+    stream, and implementors write ordinary safe Rust.
+
+!!! note "Teardown order"
+
+    Closing a selector releases engine objects held for it, so a `Subscription`
+    must die before the event loop it runs on. `Subscription` borrows its
+    `Poll`, so the compiler enforces that half for you.
+
+    The other half the scope enforces. The loop belongs to the `Runtime` and is
+    torn down with it, and both `Poll` and `Subscription` are `!Send` — so
+    `Runtime::scope`'s bound refuses to let either leave the closure. The
+    `is_current()` check on every `Poll` method is for the one route the type
+    system cannot see, a `thread_local!` stash: a handle that gets out that way
+    stops working rather than touching a destroyed loop.
+
 ## :material-arrow-right: See also
 
 - [:material-swap-horizontal: Serialization](serialization.md) — the same wire
   format used by IPC, available directly via `Value::serialize` /
   `Value::deserialize`.
+- `q::decode_response` — decode a Q message your own transport already read,
+  when you want the socket in a separate thread rather than on the event loop.
