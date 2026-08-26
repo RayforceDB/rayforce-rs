@@ -1,0 +1,6 @@
+[submodule "rayforce-sys/vendor/rayforce"]
+	path = rayforce-sys/vendor/rayforce
+	url = https://github.com/RayforceDB/rayforce.git
+[submodule "rayforce-sys/vendor/rayforce-q"]
+	path = rayforce-sys/vendor/rayforce-q
+	url = https://github.com/RayforceDB/rayforce-q.git
