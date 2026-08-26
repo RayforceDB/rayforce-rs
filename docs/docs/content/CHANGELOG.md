@@ -22,6 +22,10 @@ All notable changes to `rayforce` are documented here. This project adheres to
   `Poll` and `Subscription` are `!Send` like every other engine-backed handle,
   so `Runtime::scope` refuses to let them out.
 
+- **`q::encode`** — the mirror of `q::decode_response`: turn a `Value` into a
+  complete Q wire message for a transport you own. Together they let you write
+  a Q *publisher*, not just a client.
+
 - **`Value::attrs`** — the attribute byte. Rarely needed, but it is the only
   way to tell a keyed table (a 2-element list carrying `RAY_ATTR_DICT`) from a
   plain list, which no type code distinguishes.

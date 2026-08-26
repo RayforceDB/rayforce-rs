@@ -335,6 +335,76 @@ impl Drop for Subscription<'_> {
     }
 }
 
+/// Encode `msg` as a complete Q wire message — the 8-byte header followed by
+/// the serialized body — ready to hand to any transport.
+///
+/// The mirror of [`decode_response`], and the half a *publisher* needs: build a
+/// value, encode it, write the bytes on a socket you own.
+///
+/// # The message-type byte
+///
+/// The header is stamped `SYNC`, because that is what the underlying encoder
+/// emits and it has no way to know your intent. A publisher pushing
+/// unsolicited must retype byte 1 in place before writing:
+///
+/// ```no_run
+/// # use rayforce::{q, Runtime, Value};
+/// Runtime::scope(|_rt| {
+///     const ASYNC: u8 = 0;
+///     let mut frame = q::encode(&Value::i64(42))?;
+///     frame[1] = ASYNC;          // 0 async, 1 sync, 2 response
+///     Ok(())
+/// })?;
+/// # Ok::<(), rayforce::RayError>(())
+/// ```
+///
+/// Touches the symbol table, so it must run on the thread that owns the
+/// [`crate::Runtime`].
+///
+/// # Dictionaries
+///
+/// The encoder has no native dictionary branch: it expects a dict as a
+/// 2-element list carrying the dict attribute, and that marker does not survive
+/// the wire. A peer expecting a true q dict (type 99) will not see one. Encode
+/// the keys and values separately and splice the `0x63` marker between their
+/// bodies if you need to emit that shape.
+pub fn encode(msg: &Value) -> Result<Vec<u8>> {
+    let mut buf: *mut u8 = std::ptr::null_mut();
+    let mut len: i64 = 0;
+    let mut err = [0 as std::os::raw::c_char; 256];
+    let rc = unsafe {
+        sys::q_encode(
+            msg.as_ptr(),
+            &mut buf,
+            &mut len,
+            err.as_mut_ptr(),
+            err.len(),
+        )
+    };
+    if rc < 0 || buf.is_null() {
+        let reason = unsafe { std::ffi::CStr::from_ptr(err.as_ptr()) }.to_string_lossy();
+        let reason = if reason.is_empty() {
+            "q_encode failed".into()
+        } else {
+            reason
+        };
+        return Err(RayError::binding(format!("Q: {reason}")));
+    }
+    // The buffer is malloc'd by C; copy it out and hand it straight back.
+    let out = unsafe { std::slice::from_raw_parts(buf, len as usize) }.to_vec();
+    unsafe { libc_free(buf.cast()) };
+    Ok(out)
+}
+
+/// `free(3)`. The encoder allocates with `malloc`, so its buffer must go back
+/// to the same allocator rather than through Rust's.
+unsafe fn libc_free(p: *mut std::ffi::c_void) {
+    extern "C" {
+        fn free(p: *mut std::ffi::c_void);
+    }
+    free(p);
+}
+
 /// Decode a complete Q response message (8-byte wire header + body) that was
 /// received by an **external transport** — e.g. a worker thread that owns a
 /// plain `std::net::TcpStream` with read timeouts — into a [`Value`].
