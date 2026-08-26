@@ -91,42 +91,54 @@ macro_rules! require_binary {
 #[test]
 fn client_executes_arithmetic() {
     let bin = require_binary!();
-    let _rt = Runtime::new().unwrap();
-    let port = free_port();
-    let _server = spawn_server(&bin, port);
+    Runtime::scope(|_rt| {
+        let port = free_port();
+        let _server = spawn_server(&bin, port);
 
-    let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
-    let r = client.execute("(+ 1 2)").unwrap();
-    assert_eq!(r.as_i64().unwrap(), 3);
+        let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
+        let r = client.execute("(+ 1 2)").unwrap();
+        assert_eq!(r.as_i64().unwrap(), 3);
+        Ok(())
+    })
+    .unwrap();
 }
 
 #[test]
 fn client_roundtrips_vector() {
     let bin = require_binary!();
-    let _rt = Runtime::new().unwrap();
-    let port = free_port();
-    let _server = spawn_server(&bin, port);
+    Runtime::scope(|_rt| {
+        let port = free_port();
+        let _server = spawn_server(&bin, port);
 
-    let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
-    let r = client.execute("(til 5)").unwrap();
-    assert_eq!(r.as_slice::<i64>().unwrap(), &[0, 1, 2, 3, 4]);
+        let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
+        let r = client.execute("(til 5)").unwrap();
+        assert_eq!(r.as_slice::<i64>().unwrap(), &[0, 1, 2, 3, 4]);
+        Ok(())
+    })
+    .unwrap();
 }
 
 #[test]
 fn client_reports_server_error() {
     let bin = require_binary!();
-    let _rt = Runtime::new().unwrap();
-    let port = free_port();
-    let _server = spawn_server(&bin, port);
+    Runtime::scope(|_rt| {
+        let port = free_port();
+        let _server = spawn_server(&bin, port);
 
-    let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
-    assert!(client.execute("(undefined_symbol_xyz)").is_err());
+        let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
+        assert!(client.execute("(undefined_symbol_xyz)").is_err());
+        Ok(())
+    })
+    .unwrap();
 }
 
 #[test]
 fn connect_failure_is_an_error() {
-    let _rt = Runtime::new().unwrap();
-    // Nothing listening on this port.
-    let port = free_port();
-    assert!(TcpClient::connect("127.0.0.1", port, "", "").is_err());
+    Runtime::scope(|_rt| {
+        // Nothing listening on this port.
+        let port = free_port();
+        assert!(TcpClient::connect("127.0.0.1", port, "", "").is_err());
+        Ok(())
+    })
+    .unwrap();
 }

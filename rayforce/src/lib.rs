@@ -3,12 +3,16 @@
 //! Binds the core `ray_*` C API directly (via [`rayforce_sys`]); see `PLAN.md`
 //! for the roadmap. The crate is single-threaded by construction: the core runs
 //! on one thread with a thread-local VM and allows a single live [`Runtime`] per
-//! process. Hold a `Runtime` for as long as you use the API.
+//! process. [`Runtime::scope`] brackets it: the closure gets a `&Runtime` for as
+//! long as it runs, and everything built inside is torn down with it.
 //!
 //! ```no_run
-//! let _rt = rayforce::Runtime::new().unwrap();
-//! let two = rayforce::eval("(+ 1 1)").unwrap();
-//! assert_eq!(two.format(), "2");
+//! rayforce::Runtime::scope(|rt| {
+//!     let two = rt.eval("(+ 1 1)")?;
+//!     assert_eq!(two.format(), "2");
+//!     Ok(())
+//! })
+//! # .unwrap();
 //! ```
 
 mod convert;

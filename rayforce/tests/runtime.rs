@@ -1,52 +1,74 @@
 //! Phase 1: runtime lifecycle, eval, and Value basics.
 //!
-//! These run serialized (`RUST_TEST_THREADS=1`); each test owns a short-lived
-//! `Runtime`, which also exercises create → destroy → recreate within one
+//! These run serialized (`RUST_TEST_THREADS=1`); each test opens its own
+//! `Runtime::scope`, which also exercises create → destroy → recreate within one
 //! process — the property the whole test suite relies on.
 
 use rayforce::{eval, Runtime};
 
 #[test]
 fn eval_arithmetic() {
-    let _rt = Runtime::new().unwrap();
-    let v = eval("(+ 1 1)").unwrap();
-    assert_eq!(v.format(), "2");
+    Runtime::scope(|_rt| {
+        let v = eval("(+ 1 1)").unwrap();
+        assert_eq!(v.format(), "2");
+        Ok(())
+    })
+    .unwrap();
 }
 
 #[test]
-fn recreate_runtime_after_drop() {
-    {
-        let _rt = Runtime::new().unwrap();
+fn recreate_runtime_after_scope() {
+    assert!(!rayforce::is_live());
+    Runtime::scope(|_rt| {
         assert!(rayforce::is_live());
         assert_eq!(eval("(* 6 7)").unwrap().format(), "42");
-    }
+        Ok(())
+    })
+    .unwrap();
     assert!(!rayforce::is_live());
     // A second runtime in the same process must work (tests depend on this).
-    {
-        let _rt = Runtime::new().unwrap();
+    Runtime::scope(|_rt| {
         assert_eq!(eval("(- 10 3)").unwrap().format(), "7");
-    }
+        Ok(())
+    })
+    .unwrap();
 }
 
 #[test]
 fn only_one_live_runtime() {
-    let _rt = Runtime::new().unwrap();
-    assert!(Runtime::new().is_err(), "second runtime should be rejected");
+    // The core permits one live runtime at a time, so a nested scope must
+    // refuse rather than tear the outer one's heap out from under it.
+    let err = Runtime::scope(|_rt| match Runtime::scope(|_inner| Ok(())) {
+        Ok(()) => panic!("a nested scope must not start a second runtime"),
+        Err(e) => Ok(e),
+    })
+    .unwrap();
+    assert!(
+        err.message.contains("cannot be nested"),
+        "expected a nesting error, got: {}",
+        err.message
+    );
 }
 
 #[test]
 fn eval_error_is_surfaced() {
-    let _rt = Runtime::new().unwrap();
-    let err = eval("(undefined_name_xyz)").unwrap_err();
-    // Should be a categorized error, not a panic.
-    assert!(!err.code_str.is_empty() || !err.message.is_empty());
+    Runtime::scope(|_rt| {
+        let err = eval("(undefined_name_xyz)").unwrap_err();
+        // Should be a categorized error, not a panic.
+        assert!(!err.code_str.is_empty() || !err.message.is_empty());
+        Ok(())
+    })
+    .unwrap();
 }
 
 #[test]
 fn value_type_inspection() {
-    let _rt = Runtime::new().unwrap();
-    let v = eval("(+ 2 3)").unwrap();
-    assert!(v.is_atom());
-    assert!(!v.is_vec());
-    assert!(!v.is_null());
+    Runtime::scope(|_rt| {
+        let v = eval("(+ 2 3)").unwrap();
+        assert!(v.is_atom());
+        assert!(!v.is_vec());
+        assert!(!v.is_null());
+        Ok(())
+    })
+    .unwrap();
 }

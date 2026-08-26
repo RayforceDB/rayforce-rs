@@ -18,44 +18,53 @@
 //!
 //! ```no_run
 //! use rayforce::{Fn, Runtime, Value};
-//! let _rt = Runtime::new().unwrap();
-//! let square = Fn::new("(fn [x] (* x x))").unwrap();
-//! // On a scalar…
-//! assert_eq!(square.call(&[Value::i64(5)]).unwrap().as_i64().unwrap(), 25);
-//! // …or element-wise over a vector.
-//! let v = square.call(&[Value::vec(&[2i64, 3, 4])]).unwrap();
-//! assert_eq!(v.as_slice::<i64>().unwrap(), &[4, 9, 16]);
+//! Runtime::scope(|_rt| {
+//!     let square = Fn::new("(fn [x] (* x x))").unwrap();
+//!     // On a scalar…
+//!     assert_eq!(square.call(&[Value::i64(5)]).unwrap().as_i64().unwrap(), 25);
+//!     // …or element-wise over a vector.
+//!     let v = square.call(&[Value::vec(&[2i64, 3, 4])]).unwrap();
+//!     assert_eq!(v.as_slice::<i64>().unwrap(), &[4, 9, 16]);
+//!     Ok(())
+//! })
+//! # .unwrap();
 //! ```
 //!
 //! # Applying inside a query
 //!
 //! ```no_run
 //! use rayforce::{col, Fn, Runtime, Table, Value};
-//! let _rt = Runtime::new().unwrap();
-//! let t = Table::new(
-//!     &["id", "value"],
-//!     &[Value::sym_vec(&["a", "b", "c"]), Value::vec(&[2i64, 3, 4])],
-//! )
-//! .unwrap();
-//!
-//! let square = Fn::new("(fn [x] (* x x))").unwrap();
-//! let out = t
-//!     .select()
-//!     .col("id")
-//!     .agg("squared", square.apply([col("value")]).unwrap())
-//!     .execute()
+//! Runtime::scope(|_rt| {
+//!     let t = Table::new(
+//!         &["id", "value"],
+//!         &[Value::sym_vec(&["a", "b", "c"]), Value::vec(&[2i64, 3, 4])],
+//!     )
 //!     .unwrap();
-//! assert_eq!(out.column("squared").unwrap().as_slice::<i64>().unwrap(), &[4, 9, 16]);
+//!
+//!     let square = Fn::new("(fn [x] (* x x))").unwrap();
+//!     let out = t
+//!         .select()
+//!         .col("id")
+//!         .agg("squared", square.apply([col("value")]).unwrap())
+//!         .execute()
+//!         .unwrap();
+//!     assert_eq!(out.column("squared").unwrap().as_slice::<i64>().unwrap(), &[4, 9, 16]);
+//!     Ok(())
+//! })
+//! # .unwrap();
 //! ```
 //!
 //! # Lambdas loaded from a file
 //!
 //! ```no_run
 //! use rayforce::{eval, Fn, Runtime, Value};
-//! let _rt = Runtime::new().unwrap();
-//! eval("(load \"prelude.rfl\")").unwrap(); // defines e.g. a `sq` lambda
-//! let sq = Fn::from_global("sq").unwrap();
-//! assert_eq!(sq.call(&[Value::i64(9)]).unwrap().as_i64().unwrap(), 81);
+//! Runtime::scope(|_rt| {
+//!     eval("(load \"prelude.rfl\")").unwrap(); // defines e.g. a `sq` lambda
+//!     let sq = Fn::from_global("sq").unwrap();
+//!     assert_eq!(sq.call(&[Value::i64(9)]).unwrap().as_i64().unwrap(), 81);
+//!     Ok(())
+//! })
+//! # .unwrap();
 //! ```
 //!
 //! Mirrors `rayforce-py`'s `Fn` type.

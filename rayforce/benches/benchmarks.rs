@@ -5,21 +5,11 @@
 //! element), engine-side aggregation, group-by, and serialization.
 //!
 //! The core is single-threaded with one live runtime per process; Criterion
-//! runs benchmark routines synchronously on one thread, so we create the
-//! runtime once (and leak it for the process lifetime) on that thread.
+//! runs benchmark routines synchronously on one thread, so a single
+//! `Runtime::scope` brackets the whole run on that thread.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{black_box, criterion_group, Criterion, Throughput};
 use rayforce::{col, lit, sum, Runtime, Table, Value};
-use std::sync::Once;
-
-static INIT: Once = Once::new();
-
-fn ensure_runtime() {
-    INIT.call_once(|| {
-        // Leak: the runtime must outlive every benchmark on this thread.
-        std::mem::forget(Runtime::new().expect("runtime"));
-    });
-}
 
 const N: usize = 100_000;
 
@@ -28,7 +18,6 @@ fn i64_data() -> Vec<i64> {
 }
 
 fn bench_vector(c: &mut Criterion) {
-    ensure_runtime();
     let data = i64_data();
 
     let mut g = c.benchmark_group("vector");
@@ -57,7 +46,6 @@ fn bench_vector(c: &mut Criterion) {
 /// Boxed element read: one FFI hop + allocation per element — the cost the
 /// zero-copy `as_slice` path avoids. Smaller N keeps wall-clock sane.
 fn bench_boxed_read(c: &mut Criterion) {
-    ensure_runtime();
     let small = Value::vec(&(0..10_000i64).collect::<Vec<_>>());
     let mut g = c.benchmark_group("vector_boxed_read_10k");
     g.throughput(Throughput::Elements(10_000));
@@ -74,7 +62,6 @@ fn bench_boxed_read(c: &mut Criterion) {
 }
 
 fn bench_aggregation(c: &mut Criterion) {
-    ensure_runtime();
     let v = Value::vec(&i64_data());
 
     let mut g = c.benchmark_group("aggregation");
@@ -89,7 +76,6 @@ fn bench_aggregation(c: &mut Criterion) {
 }
 
 fn bench_query(c: &mut Criterion) {
-    ensure_runtime();
 
     // 100k rows over 10 symbol groups.
     let groups = ["g0", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9"];
@@ -131,7 +117,6 @@ fn bench_query(c: &mut Criterion) {
 }
 
 fn bench_serde(c: &mut Criterion) {
-    ensure_runtime();
     let v = Value::vec(&i64_data());
     let bytes = v.serialize().unwrap();
 
@@ -157,4 +142,13 @@ criterion_group!(
     bench_query,
     bench_serde
 );
-criterion_main!(benches);
+// Hand-rolled `criterion_main!`: every benchmark has to run inside one scope,
+// since the runtime is torn down when it ends.
+fn main() {
+    Runtime::scope(|_rt| {
+        benches();
+        Criterion::default().configure_from_args().final_summary();
+        Ok(())
+    })
+    .unwrap();
+}

@@ -7,9 +7,12 @@
 //!
 //! ```no_run
 //! use rayforce::{Runtime, q::QConnection};
-//! let _rt = Runtime::new().unwrap();
-//! let conn = QConnection::connect("localhost", 5010).unwrap();
-//! let fills = conn.execute("select from fixmsgs where i > 0").unwrap();
+//! Runtime::scope(|_rt| {
+//!     let conn = QConnection::connect("localhost", 5010).unwrap();
+//!     let fills = conn.execute("select from fixmsgs where i > 0").unwrap();
+//!     Ok(())
+//! })
+//! # .unwrap();
 //! ```
 
 use std::ffi::CString;

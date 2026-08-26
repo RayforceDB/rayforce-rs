@@ -21,33 +21,36 @@ fn real_q_roundtrips_atoms_vectors_and_tables() {
         eprintln!("RAYFORCE_Q_ADDR unset — skipping real-q e2e");
         return;
     };
-    let _rt = Runtime::new().unwrap();
-    let conn = QConnection::connect(&host, port).unwrap();
+    Runtime::scope(|_rt| {
+        let conn = QConnection::connect(&host, port).unwrap();
 
-    // scalar
-    let v = conn.execute("ping 41").unwrap();
-    assert_eq!(v.format(), "42");
+        // scalar
+        let v = conn.execute("ping 41").unwrap();
+        assert_eq!(v.format(), "42");
 
-    // vector
-    let v = conn.execute("exec seq from fixmsgs").unwrap();
-    assert_eq!(v.as_slice::<i64>().unwrap(), &[1, 2, 3, 4, 5]);
+        // vector
+        let v = conn.execute("exec seq from fixmsgs").unwrap();
+        assert_eq!(v.as_slice::<i64>().unwrap(), &[1, 2, 3, 4, 5]);
 
-    // full table
-    let t = Table::from_value(conn.execute("select from fixmsgs").unwrap()).unwrap();
-    assert_eq!(t.shape(), (5, 4));
-    assert_eq!(
-        t.column("seq").unwrap().as_slice::<i64>().unwrap(),
-        &[1, 2, 3, 4, 5]
-    );
-    let sym = t.column("sym").unwrap();
-    assert_eq!(sym.get(0).unwrap().as_sym().unwrap(), "AAPL");
-    assert_eq!(sym.get(4).unwrap().as_sym().unwrap(), "TSLA");
+        // full table
+        let t = Table::from_value(conn.execute("select from fixmsgs").unwrap()).unwrap();
+        assert_eq!(t.shape(), (5, 4));
+        assert_eq!(
+            t.column("seq").unwrap().as_slice::<i64>().unwrap(),
+            &[1, 2, 3, 4, 5]
+        );
+        let sym = t.column("sym").unwrap();
+        assert_eq!(sym.get(0).unwrap().as_sym().unwrap(), "AAPL");
+        assert_eq!(sym.get(4).unwrap().as_sym().unwrap(), "TSLA");
 
-    // RevoLT-style pull-by-sequence: only rows past a cursor
-    let t = Table::from_value(conn.execute("select from fixmsgs where seq > 3").unwrap()).unwrap();
-    assert_eq!(t.shape(), (2, 4));
-    assert_eq!(t.column("seq").unwrap().as_slice::<i64>().unwrap(), &[4, 5]);
+        // RevoLT-style pull-by-sequence: only rows past a cursor
+        let t = Table::from_value(conn.execute("select from fixmsgs where seq > 3").unwrap()).unwrap();
+        assert_eq!(t.shape(), (2, 4));
+        assert_eq!(t.column("seq").unwrap().as_slice::<i64>().unwrap(), &[4, 5]);
 
-    // server-side error surfaces as Err
-    assert!(conn.execute("1+`a").is_err());
+        // server-side error surfaces as Err
+        assert!(conn.execute("1+`a").is_err());
+        Ok(())
+    })
+    .unwrap();
 }
