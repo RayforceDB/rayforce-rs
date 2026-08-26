@@ -6,12 +6,14 @@
 
 use crate::error::{check, RayError, Result};
 use crate::raw::{self, Raw};
+use crate::runtime::assert_live;
 use crate::value::Value;
 use rayforce_sys as sys;
 
 impl Value {
     /// Build a list from boxed values (each is retained by the list).
     pub fn list(items: &[Value]) -> Value {
+        assert_live("Value::list");
         unsafe {
             let mut l = match check(sys::ray_list_new(items.len() as i64)) {
                 Ok(p) => p,
@@ -30,6 +32,7 @@ impl Value {
 
     /// An empty list with the given capacity.
     pub fn empty_list(capacity: i64) -> Value {
+        assert_live("Value::empty_list");
         unsafe {
             match check(sys::ray_list_new(capacity)) {
                 Ok(p) => Value::from_owned(p),
