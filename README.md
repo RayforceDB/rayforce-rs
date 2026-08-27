@@ -88,8 +88,8 @@ println!("{result}");
 
 ## Installation
 
-The crate links two local checkouts: the RayforceDB **core** (`RAYFORCE_SRC`) and the
-**rayforce-q** IPC client (`RAYFORCE_Q_SRC`). The build script compiles both and statically
+The RayforceDB **core** and the **rayforce-q** IPC client are C. Both ship inside the
+crate, so nothing is fetched at build time — the build script compiles them and statically
 links `librayforce.a`.
 
 ```toml
@@ -98,18 +98,53 @@ links `librayforce.a`.
 rayforce = { git = "https://github.com/RayforceDB/rayforce-rs" }
 ```
 
-```sh
-git clone https://github.com/RayforceDB/rayforce   ~/rayforce      # core
-git clone https://github.com/RayforceDB/rayforce-q ~/rayforce-q    # Q IPC client
+Requirements: a C toolchain (`make`, `clang`) and `libclang` for `bindgen`.
 
-export RAYFORCE_SRC=/path/to/rayforce       # default: ~/rayforce
-export RAYFORCE_Q_SRC=/path/to/rayforce-q   # default: ~/rayforce-q
+### Working on the bindings
+
+The C sources live in git submodules under `rayforce-sys/vendor/`, so a checkout needs
+them initialized:
+
+```sh
+git clone --recurse-submodules https://github.com/RayforceDB/rayforce-rs
+# in an existing clone:
+git submodule update --init --recursive
 
 cargo build
 cargo test
 ```
 
-Requirements: a C toolchain (`make`, `clang`) and `libclang` for `bindgen`.
+### Choosing the core version
+
+Each release links one pinned core version. It lives in two places that must agree — the
+`rayforce-sys/vendor/rayforce` submodule, and the `CORE_VERSION` / `CORE_COMMIT` constants
+in `rayforce-sys/build.rs` that get stamped into `librayforce.a` (a crate unpacked from
+crates.io has no git history for the core's Makefile to read a version from).
+
+To move the pin, move both:
+
+```sh
+git -C rayforce-sys/vendor/rayforce fetch --tags
+git -C rayforce-sys/vendor/rayforce checkout v2.6.0
+git add rayforce-sys/vendor/rayforce
+
+git -C rayforce-sys/vendor/rayforce rev-parse --short=7 HEAD   # CORE_COMMIT
+$EDITOR rayforce-sys/build.rs                                  # CORE_VERSION, CORE_COMMIT
+
+./scripts/check-vendored-pin.sh    # names the mismatch if they disagree
+cargo test --workspace
+```
+
+`rayforce-sys/vendor/rayforce-q` works the same way, minus the constants — nothing is
+stamped from it.
+
+To build against a core you are changing instead, point the build script at your own
+checkout. These take precedence over the vendored copies:
+
+```sh
+export RAYFORCE_SRC=/path/to/rayforce
+export RAYFORCE_Q_SRC=/path/to/rayforce-q
+```
 
 `bindgen` locates `libclang` via `LIBCLANG_PATH`. This is deliberately **not** set in the
 repo's `.cargo/config.toml`. If bindgen can't auto-detect libclang, set it yourself:

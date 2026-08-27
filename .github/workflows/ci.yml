@@ -7,34 +7,25 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RAYFORCE_SRC: ${{ github.workspace }}/rayforce-core
-  RAYFORCE_Q_SRC: ${{ github.workspace }}/rayforce-q
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      # The C core and the rayforce-q client are submodules under
+      # rayforce-sys/vendor/, so this one checkout brings the whole build.
       - name: Checkout bindings
         uses: actions/checkout@v4
-
-      - name: Checkout RayforceDB core
-        uses: actions/checkout@v4
         with:
-          repository: RayforceDB/rayforce
-          path: rayforce-core
+          submodules: recursive
 
-      - name: Checkout rayforce-q client
-        uses: actions/checkout@v4
-        with:
-          repository: RayforceDB/rayforce-q
-          path: rayforce-q
+      - name: Check vendored core pin
+        run: ./scripts/check-vendored-pin.sh
 
       - name: Install toolchain deps
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev build-essential
 
-      # The repo's .cargo/config.toml sets a macOS LIBCLANG_PATH for local dev.
-      # On Linux that path is invalid, so point bindgen at the apt libclang here
-      # — an env var set in the job takes precedence over the config default.
+      # bindgen needs to be told where libclang lives on the runner.
       - name: Locate libclang
         run: |
           LIB="$(find /usr/lib -name 'libclang*.so*' 2>/dev/null | head -1)"
@@ -64,3 +55,17 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      # The vendored sources must actually land in the .crate — that is the
+      # whole reason docs.rs and other network-isolated builds work. Cheap to
+      # check here, and a broken package is invisible until someone consumes it.
+      - name: Check the packaged crate carries the vendored core
+        run: |
+          cargo package -p rayforce-sys --list --allow-dirty > /tmp/pkg.txt
+          for f in vendor/rayforce/include/rayforce.h vendor/rayforce/Makefile vendor/rayforce-q/q.c; do
+            grep -qx "$f" /tmp/pkg.txt || { echo "::error::$f missing from the packaged crate"; exit 1; }
+          done
+          if grep -qE '\.(o|d)$' /tmp/pkg.txt; then
+            echo "::error::build artifacts leaked into the packaged crate"; exit 1
+          fi
+          echo "packaged $(wc -l < /tmp/pkg.txt) files"

@@ -1,8 +1,9 @@
 # :octicons-package-16: Installation
 
-`rayforce` builds against a local checkout of the RayforceDB core. The build
-script compiles the core into a static library (`librayforce.a`) and statically
-links it, so there is nothing to install at runtime.
+The RayforceDB core is C, and it ships inside the `rayforce-sys` crate as a
+pinned git submodule. The build script compiles it into a static library
+(`librayforce.a`) and links it statically — so there is nothing to fetch while
+building, and nothing to install at runtime.
 
 ## :material-clipboard-check-outline: Prerequisites
 
@@ -11,7 +12,6 @@ links it, so there is nothing to install at runtime.
 - A **C toolchain** — `make` and `clang` — to build the RayforceDB core.
 - **`libclang`**, required by [`bindgen`](https://github.com/rust-lang/rust-bindgen)
   to generate the raw FFI bindings.
-- A **RayforceDB core** checkout to link against (see below).
 
 !!! note "macOS: `LIBCLANG_PATH`"
     On macOS `bindgen` may not find `libclang` automatically. Point it at your
@@ -24,22 +24,83 @@ links it, so there is nothing to install at runtime.
     The repository's `.cargo/config.toml` is the place to set this permanently
     for local builds.
 
-## :material-source-branch: Building against a local core
+## :material-tag-outline: Which core version gets linked
 
-The build links a local RayforceDB core checkout. Point the `RAYFORCE_SRC`
-environment variable at it; it defaults to `~/rayforce`. The build script runs
-the core's `make lib` to produce `librayforce.a`, then links it.
+Each release of `rayforce` links one specific core version. It is pinned in two
+places that must agree:
+
+| What | Where |
+| --- | --- |
+| The core sources | the `rayforce-sys/vendor/rayforce` submodule |
+| The version stamped into the library | `CORE_VERSION` / `CORE_COMMIT` in `rayforce-sys/build.rs` |
+
+The constants exist because the core's `Makefile` normally resolves its version
+from `git describe`, and a crate unpacked from crates.io has no git history to
+read. `scripts/check-vendored-pin.sh` asserts the two agree, and CI runs it on
+every push.
+
+As a consumer you get the core that matches the `rayforce` version you depend
+on — pick a different core by picking a different `rayforce` release. The two
+sections below are for changing that pin yourself.
+
+### :material-source-branch: Building against your own core checkout
+
+To develop against a core you are changing, point `RAYFORCE_SRC` at it. It takes
+precedence over the vendored copy, and is built in place so your incremental
+state and the version its git history reports are preserved. `RAYFORCE_Q_SRC`
+does the same for the `rayforce-q` IPC client.
 
 ```sh
-git clone https://github.com/RayforceDB/rayforce-rs.git ~/rayforce
+export RAYFORCE_SRC=/path/to/rayforce
+export RAYFORCE_Q_SRC=/path/to/rayforce-q
 
-# Point the build at it (default is ~/rayforce, so this is optional there).
-export RAYFORCE_SRC=~/rayforce
-
-# Build and test the bindings.
 cargo build
 cargo test
 ```
+
+Unset them to go back to the vendored sources.
+
+### :material-arrow-up-bold-box-outline: Bumping the pinned version
+
+Moving the pin means moving the submodule and the constants together:
+
+```sh
+# 1. Move the submodule to the new tag.
+git -C rayforce-sys/vendor/rayforce fetch --tags
+git -C rayforce-sys/vendor/rayforce checkout v2.6.0
+git add rayforce-sys/vendor/rayforce
+
+# 2. Read back the values build.rs must stamp.
+git -C rayforce-sys/vendor/rayforce describe --tags --exact-match   # -> v2.6.0
+git -C rayforce-sys/vendor/rayforce rev-parse --short=7 HEAD        # -> e.g. 1a2b3c4
+```
+
+Then edit `rayforce-sys/build.rs` to match — `CORE_VERSION` is the tag without
+its leading `v`:
+
+```rust
+const CORE_VERSION: &str = "2.6.0";
+const CORE_COMMIT: &str = "1a2b3c4";
+```
+
+And check the result:
+
+```sh
+./scripts/check-vendored-pin.sh   # fails, with the mismatch named, if they disagree
+cargo test --workspace
+```
+
+The same applies to `rayforce-sys/vendor/rayforce-q`, minus the constants —
+nothing is stamped from it, so moving the submodule is the whole change.
+
+!!! warning "A new core may need the bindgen allowlist updated"
+    A few of the symbols the safe crate calls are not in the public
+    `rayforce.h` — they are read from the core's private headers instead.
+    `CORE_PRIVATE_HEADERS` and `INTERNAL_FNS` in `rayforce-sys/build.rs` name
+    those headers and symbols. Signatures need no maintenance, since bindgen
+    reads them from the core, but a bump that renames or relocates one will
+    fail the build: bindgen emits nothing for it and the safe crate stops
+    compiling against `rayforce_sys`. Fix it by updating those two lists.
 
 !!! note "Tests run single-threaded"
     The engine runs on a single thread with one live runtime per process, so the
@@ -58,7 +119,7 @@ or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-rayforce = "0.1"
+rayforce = "1"
 ```
 
 ### The `chrono` feature (default)
@@ -72,7 +133,7 @@ To build without it, disable default features:
 
 ```toml
 [dependencies]
-rayforce = { version = "0.1", default-features = false }
+rayforce = { version = "1", default-features = false }
 ```
 
 ## :material-arrow-right: Next steps

@@ -15,6 +15,29 @@ rust-version.workspace = true
 links = "rayforce"
 build = "build.rs"
 
+# The C sources ship inside the .crate so a build never needs the network
+# (docs.rs and other sandboxes have none). Deny-by-default: the vendored repos
+# carry test suites and websites that would otherwise bloat the package —
+# `make lib` only needs src/*/*.c, include/ and the Makefile.
+#
+# The extension filters are load-bearing: an `include` list is matched against
+# the filesystem, not against git, so a bare `src/**` would package the .o/.d
+# artifacts of a local `make lib` despite the core's .gitignore.
+include = [
+    "src/**",
+    "tests/**",
+    "build.rs",
+    "Cargo.toml",
+    "vendor/rayforce/src/**/*.c",
+    "vendor/rayforce/src/**/*.h",
+    "vendor/rayforce/include/*.h",
+    "vendor/rayforce/Makefile",
+    "vendor/rayforce/LICENSE",
+    "vendor/rayforce-q/q.c",
+    "vendor/rayforce-q/q.h",
+    "vendor/rayforce-q/LICENSE",
+]
+
 [build-dependencies]
 bindgen = "0.70"
 cc = "1"

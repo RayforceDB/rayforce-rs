@@ -10,10 +10,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # The publish verify build (and the downstream rayforce-sys build triggered
-  # when publishing `rayforce`) reads these to avoid re-cloning the C sources.
-  RAYFORCE_SRC: ${{ github.workspace }}/rayforce-core
-  RAYFORCE_Q_SRC: ${{ github.workspace }}/rayforce-q
 
 jobs:
   publish:
@@ -24,30 +20,21 @@ jobs:
       id-token: write
       contents: read
     steps:
+      # The C sources are submodules under rayforce-sys/vendor/, so what is
+      # built and published here is exactly what a crates.io consumer gets —
+      # no separate checkout to keep in step with build.rs.
       - name: Checkout bindings
         uses: actions/checkout@v4
-
-      # Pin the same refs as rayforce-sys/build.rs so a source build here
-      # matches what a crates.io consumer gets.
-      - name: Checkout RayforceDB core (v2.5.1)
-        uses: actions/checkout@v4
         with:
-          repository: RayforceDB/rayforce
-          ref: 'v2.5.1'
-          path: rayforce-core
+          submodules: recursive
 
-      - name: Checkout rayforce-q client (2.0.0)
-        uses: actions/checkout@v4
-        with:
-          repository: RayforceDB/rayforce-q
-          ref: '2.0.0'
-          path: rayforce-q
+      - name: Check vendored core pin
+        run: ./scripts/check-vendored-pin.sh
 
       - name: Install toolchain deps
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev build-essential
 
-      # .cargo/config.toml sets a macOS LIBCLANG_PATH for local dev; on Linux
-      # that path is invalid, so point bindgen at the apt libclang here.
+      # bindgen needs to be told where libclang lives on the runner.
       - name: Locate libclang
         run: |
           LIB="$(find /usr/lib -name 'libclang*.so*' 2>/dev/null | head -1)"
@@ -69,6 +56,19 @@ jobs:
 
       - name: Test workspace
         run: cargo test --workspace
+
+      # A .crate missing its vendored sources would build fine in this job (the
+      # submodule is on disk) and then fail for every consumer and on docs.rs.
+      # This is the last point at which that is catchable.
+      - name: Check the packaged crate carries the vendored core
+        run: |
+          cargo package -p rayforce-sys --list > /tmp/pkg.txt
+          for f in vendor/rayforce/include/rayforce.h vendor/rayforce/Makefile vendor/rayforce-q/q.c; do
+            grep -qx "$f" /tmp/pkg.txt || { echo "::error::$f missing from the packaged crate"; exit 1; }
+          done
+          if grep -qE '\.(o|d)$' /tmp/pkg.txt; then
+            echo "::error::build artifacts leaked into the packaged crate"; exit 1
+          fi
 
       # Trusted Publishing: exchanges the job's OIDC identity for a short-lived
       # crates.io token. No CARGO_REGISTRY_TOKEN secret needed — but both
