@@ -93,10 +93,14 @@ cargo test --workspace
 The same applies to `rayforce-sys/vendor/rayforce-q`, minus the constants —
 nothing is stamped from it, so moving the submodule is the whole change.
 
-!!! warning "A new core may need `wrapper.h` updated"
-    `rayforce-sys/wrapper.h` hand-declares core symbols that are not in the
-    public `rayforce.h`. If a bump moves one of them into the public header, or
-    changes its signature, the declaration there has to follow.
+!!! warning "A new core may need the bindgen allowlist updated"
+    A few of the symbols the safe crate calls are not in the public
+    `rayforce.h` — they are read from the core's private headers instead.
+    `CORE_PRIVATE_HEADERS` and `INTERNAL_FNS` in `rayforce-sys/build.rs` name
+    those headers and symbols. Signatures need no maintenance, since bindgen
+    reads them from the core, but a bump that renames or relocates one will
+    fail the build: bindgen emits nothing for it and the safe crate stops
+    compiling against `rayforce_sys`. Fix it by updating those two lists.
 
 !!! note "Tests run single-threaded"
     The engine runs on a single thread with one live runtime per process, so the
