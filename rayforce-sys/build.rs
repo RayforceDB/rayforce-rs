@@ -8,7 +8,8 @@
 //!    library `librayforce.a` there via the core's `make lib` (incremental — a
 //!    no-op when objects are up to date).
 //! 3. Emits the static link directives.
-//! 4. Generates Rust bindings from `wrapper.h` with `bindgen`.
+//! 4. Generates Rust bindings with `bindgen`, from the core's public header
+//!    plus the private ones declaring [`INTERNAL_FNS`].
 
 use std::collections::HashSet;
 use std::env;
@@ -42,6 +43,50 @@ const CORE_COMMIT: &str = "f0d4bb4";
 /// should not be a hard failure inside someone else's dependency tree. The
 /// core's own CI is where `-Werror` belongs.
 const CORE_WARNS: &str = "-Wall -Wextra -Wstrict-prototypes -Wno-unused-parameter";
+
+/// Core headers outside `include/` that declare [`INTERNAL_FNS`]. Private to
+/// the core, but they ship in this crate alongside the sources they belong to
+/// (`Cargo.toml`'s `vendor/rayforce/src/**/*.h`), and each parses standalone
+/// given `include/` and `src/` on the header search path — plus the
+/// `-D_Atomic` workaround in [`main`].
+const CORE_PRIVATE_HEADERS: &[&str] = &[
+    "lang/eval.h",
+    "lang/internal.h",
+    "ops/ops.h",
+    "store/serde.h",
+    "core/runtime.h",
+];
+
+/// Symbols the safe crate calls that `include/rayforce.h` does not declare.
+/// They are exported by `librayforce.a` all the same, and are read from
+/// [`CORE_PRIVATE_HEADERS`] rather than redeclared here — C linkage matches on
+/// name alone, so a hand-copied signature that drifts from the core is
+/// undefined behavior with no diagnostic anywhere in the build.
+///
+/// Everything else bindgen generates comes from the public header; this list is
+/// the entire deliberate exception to that, so a core bump that renames or
+/// removes one of these fails the build rather than passing silently.
+const INTERNAL_FNS: &[&str] = &[
+    // src/lang/eval.h — evaluate an already-compiled AST object
+    "ray_eval",
+    // src/lang/internal.h — query builtins (variadic arg-array form)
+    "ray_update_fn",
+    "ray_insert_fn",
+    "ray_upsert_fn",
+    // src/lang/internal.h — CSV + on-disk table I/O
+    "ray_read_csv_fn",
+    "ray_write_csv_fn",
+    "ray_set_splayed_fn",
+    "ray_get_splayed_fn",
+    "ray_get_parted_fn",
+    // src/ops/ops.h — materialize a lazy DAG result
+    "ray_lazy_materialize",
+    // src/store/serde.h — serialize / deserialize a U8 vector with IPC header
+    "ray_ser",
+    "ray_de",
+    // src/core/runtime.h — last per-VM error message (set with a RAY_ERROR)
+    "ray_error_msg",
+];
 
 fn main() {
     // An explicit override means the caller brought their own core, with its
@@ -108,30 +153,52 @@ fn main() {
     println!("cargo:root={}", core.display());
 
     // --- bindgen ---
-    let bindings = bindgen::Builder::default()
-        .header("wrapper.h")
+    let mut builder = bindgen::Builder::default()
+        .header(include.join("rayforce.h").display().to_string())
         .clang_arg(format!("-I{}", include.display()))
-        // Keep the surface tight and deterministic.
-        .allowlist_function("ray_.*")
-        .allowlist_type("ray_.*")
-        .allowlist_var("RAY_.*")
-        .allowlist_var("NULL_.*")
-        .allowlist_var("__ray_.*")
-        .allowlist_var("ray_type_sizes")
+        .clang_arg(format!("-I{}", core.join("src").display()))
+        // bindgen 0.70 cannot resolve C11 atomics and aborts the whole parse
+        // with "Couldn't resolve constant type" — reached here via
+        // `lang/internal.h` -> `mem/heap.h:442`, the only header declaring
+        // ray_{set,get}_splayed_fn / ray_get_parted_fn. Defining the keyword
+        // away costs nothing: the only two atomics in the parse are the file
+        // scope globals `ray_heap_pending_merge` (`mem/heap.h:442`) and
+        // `ray_parallel_flag` (`core/platform.h:179`), neither allowlisted, and
+        // no generated type contains one — `include/rayforce.h` never says
+        // `_Atomic`. So no layout bindgen emits can shift. This affects only
+        // bindgen's parse; the core itself is compiled by its own Makefile.
+        .clang_arg("-D_Atomic(T)=T")
+        // Everything the public header declares. This bound is load-bearing:
+        // the private headers added below declare ~550 functions and ~80 RAY_*
+        // constants between them, so a blanket `ray_.*` would drag in the whole
+        // internal surface. Anchored loosely because the staged path lives under
+        // OUT_DIR, which may itself contain regex metacharacters.
+        .allowlist_file(".*/include/rayforce\\.h")
+        // The public header leaves ray_runtime_s incomplete (`rayforce.h:656`)
+        // and `core/runtime.h:114` completes it. Left alone, bindgen would
+        // publish the runtime internals — ray_vm_t and friends, ~67 KB of
+        // private layout that would then churn on every core bump. Opaque
+        // keeps it a handle, which is all the public API ever passes around.
+        .opaque_type("ray_runtime_s")
         // ray_t is a union with a flexible array member + nested anon structs;
         // let bindgen represent it faithfully.
         .layout_tests(true)
         .derive_debug(false)
         .generate_comments(false)
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        .generate()
-        .expect("failed to generate rayforce bindings");
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()));
+    for header in CORE_PRIVATE_HEADERS {
+        builder = builder.header(core.join("src").join(header).display().to_string());
+    }
+    for func in INTERNAL_FNS {
+        builder = builder.allowlist_function(func);
+    }
 
-    bindings
+    builder
+        .generate()
+        .expect("failed to generate rayforce bindings")
         .write_to_file(out_dir().join("bindings.rs"))
         .expect("failed to write bindings.rs");
 
-    println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-changed=build.rs");
 }
 

@@ -27,7 +27,6 @@ include = [
     "src/**",
     "tests/**",
     "build.rs",
-    "wrapper.h",
     "Cargo.toml",
     "vendor/rayforce/src/**/*.c",
     "vendor/rayforce/src/**/*.h",
