@@ -76,7 +76,6 @@ fn bench_aggregation(c: &mut Criterion) {
 }
 
 fn bench_query(c: &mut Criterion) {
-
     // 100k rows over 10 symbol groups.
     let groups = ["g0", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9"];
     let syms: Vec<&str> = (0..N).map(|i| groups[i % groups.len()]).collect();

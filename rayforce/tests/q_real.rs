@@ -44,7 +44,8 @@ fn real_q_roundtrips_atoms_vectors_and_tables() {
         assert_eq!(sym.get(4).unwrap().as_sym().unwrap(), "TSLA");
 
         // RevoLT-style pull-by-sequence: only rows past a cursor
-        let t = Table::from_value(conn.execute("select from fixmsgs where seq > 3").unwrap()).unwrap();
+        let t =
+            Table::from_value(conn.execute("select from fixmsgs where seq > 3").unwrap()).unwrap();
         assert_eq!(t.shape(), (2, 4));
         assert_eq!(t.column("seq").unwrap().as_slice::<i64>().unwrap(), &[4, 5]);
 

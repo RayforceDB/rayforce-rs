@@ -6,7 +6,6 @@ use rayforce::{col, sum, Fn, Runtime, Table, Value};
 fn main() {
     // Нужен живой рантайм (один на процесс).
     Runtime::scope(|_rt| {
-
         // 1. Создаём лямбду из исходника Rayfall.
         let square = Fn::new("(fn [x] (* x x))").unwrap();
         println!("лямбда:        {square}");

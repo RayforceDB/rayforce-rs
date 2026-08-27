@@ -48,8 +48,8 @@ fn symbol_and_string() {
 fn guid_roundtrip() {
     Runtime::scope(|_rt| {
         let bytes = [
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32,
-            0x10,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
+            0x32, 0x10,
         ];
         assert_eq!(Value::guid(&bytes).as_guid().unwrap(), bytes);
         assert!(Value::guid(&[0u8; 16]).is_atom_null());
@@ -139,7 +139,6 @@ fn matches_engine_evaluation() {
 fn chrono_roundtrips() {
     use chrono::{NaiveDate, NaiveTime, TimeZone, Utc};
     Runtime::scope(|_rt| {
-
         let d = NaiveDate::from_ymd_opt(2021, 6, 15).unwrap();
         assert_eq!(d.to_value().extract::<NaiveDate>().unwrap(), d);
 

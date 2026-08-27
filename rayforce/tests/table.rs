@@ -79,11 +79,14 @@ fn matches_engine_table() {
         // Build the same table the engine builds via a literal, compare formatting.
         let t = sample_table();
         let engine =
-            eval("(table 'sym (list 'AAPL 'MSFT 'GOOG) 'price 101.5 202.0 303.25 'size 10 20 30)").ok();
+            eval("(table 'sym (list 'AAPL 'MSFT 'GOOG) 'price 101.5 202.0 303.25 'size 10 20 30)")
+                .ok();
         // The exact literal syntax may differ across engine versions; only assert
         // our table renders non-empty and has the expected shape-derived header.
         let rendered = format!("{t}");
-        assert!(rendered.contains("sym") && rendered.contains("price") && rendered.contains("size"));
+        assert!(
+            rendered.contains("sym") && rendered.contains("price") && rendered.contains("size")
+        );
         let _ = engine; // engine literal is advisory; not asserted on
         Ok(())
     })
@@ -161,7 +164,8 @@ fn splayed_sym_values_roundtrip() {
         )
         .unwrap();
 
-        let base = std::env::temp_dir().join(format!("rayforce_rs_splay_sym_{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("rayforce_rs_splay_sym_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let dir = base.join("t");
         std::fs::create_dir_all(&dir).unwrap();

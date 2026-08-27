@@ -78,7 +78,6 @@ fn spawn_mock(response: Vec<u8>) -> u16 {
 #[test]
 fn q_pulls_a_table() {
     Runtime::scope(|_rt| {
-
         let response = msg(&table(
             &["seq", "sym"],
             &[long_vec(&[1, 2, 3]), sym_vec(&["AAPL", "MSFT", "GOOG"])],
