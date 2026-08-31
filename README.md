@@ -148,6 +148,12 @@ export RAYFORCE_SRC=/path/to/rayforce
 export RAYFORCE_Q_SRC=/path/to/rayforce-q
 ```
 
+Such a checkout is built in place, so incremental state is preserved — except across a
+core-flavour switch. Release and debug objects share every filename, so the first build
+after `RAYFORCE_CORE_DEBUG` changes drops every object under `src/` and the
+`librayforce.a` beside them, and records the flags in an untracked `.stamp`. Nothing
+tracked by git is touched.
+
 `bindgen` locates `libclang` via `LIBCLANG_PATH`. This is deliberately **not** set in the
 repo's `.cargo/config.toml`. If bindgen can't auto-detect libclang, set it yourself:
 

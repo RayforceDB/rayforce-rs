@@ -350,6 +350,16 @@ fn walk(root: &Path, visit: &mut dyn FnMut(&Path)) {
 /// debug objects share every filename, so make would archive a mixed library.
 /// Both flavour and version ride in the one stamp, so one comparison covers
 /// both.
+///
+/// # This runs for a `RAYFORCE_SRC` checkout too
+///
+/// It has to: only the vendored copy stamps a version, but either tree can flip
+/// flavour, and a mixed archive is as wrong in a checkout the user owns as it is
+/// under OUT_DIR. The consequence is worth stating plainly — in such a checkout
+/// the first build after a flavour change deletes every object under `src/` and
+/// the `librayforce.a` beside them, forcing a full core rebuild, and leaves a
+/// `.stamp` file behind. The objects are `.gitignore`d upstream so nothing
+/// tracked is touched; `.stamp` is not, so it shows up as untracked.
 fn invalidate_on_stamp_change(core: &Path, stamp: &str) {
     let marker = core.join(".stamp");
     if fs::read_to_string(&marker).is_ok_and(|current| current == stamp) {
@@ -424,7 +434,10 @@ fn core_flavour() -> Flavour {
 
 /// Run the core's `make lib`. `stamp_version` is set when the core is our
 /// pinned submodule staged under OUT_DIR, rather than a `RAYFORCE_SRC`
-/// checkout building in place with its own git history.
+/// checkout building in place with its own git history. It selects whether to
+/// pass `RAY_VERSION`/`GIT_HASH`, and nothing else — object invalidation is
+/// deliberately not gated on it, because either tree can flip [`Flavour`]. See
+/// [`invalidate_on_stamp_change`].
 fn build_core_lib(core: &Path, stamp_version: bool) {
     // Cargo budgets build-script parallelism via NUM_JOBS. Without it make runs
     // serially — minutes of wall clock for ~90 translation units at -O3, which
