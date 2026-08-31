@@ -18,14 +18,14 @@ fn eval_arithmetic() {
 
 #[test]
 fn recreate_runtime_after_scope() {
-    assert!(!rayforce::is_live());
+    assert!(!rayforce::on_runtime_thread());
     Runtime::scope(|_rt| {
-        assert!(rayforce::is_live());
+        assert!(rayforce::on_runtime_thread());
         assert_eq!(eval("(* 6 7)").unwrap().format(), "42");
         Ok(())
     })
     .unwrap();
-    assert!(!rayforce::is_live());
+    assert!(!rayforce::on_runtime_thread());
     // A second runtime in the same process must work (tests depend on this).
     Runtime::scope(|_rt| {
         assert_eq!(eval("(- 10 3)").unwrap().format(), "7");

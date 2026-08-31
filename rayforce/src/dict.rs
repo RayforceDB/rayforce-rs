@@ -2,7 +2,7 @@
 
 use crate::error::{check, RayError, Result};
 use crate::raw;
-use crate::runtime::assert_live;
+use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
 use rayforce_sys as sys;
 
@@ -11,7 +11,7 @@ impl Value {
     ///
     /// Consumes both arguments (the core takes ownership of each).
     pub fn dict(keys: Value, values: Value) -> Value {
-        assert_live("Value::dict");
+        assert_on_runtime_thread("Value::dict");
         unsafe {
             let d = sys::ray_dict_new(keys.into_raw(), values.into_raw());
             match check(d) {

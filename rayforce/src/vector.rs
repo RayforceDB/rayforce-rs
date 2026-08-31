@@ -10,7 +10,7 @@
 
 use crate::error::{check, RayError, Result};
 use crate::raw::{self, Raw};
-use crate::runtime::assert_live;
+use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
 use core::ffi::c_void;
 use rayforce_sys as sys;
@@ -46,7 +46,7 @@ impl Value {
 
     /// Build a vector from a slice of fixed-width elements (single `memcpy`).
     pub fn vec<T: VecElem>(data: &[T]) -> Value {
-        assert_live("Value::vec");
+        assert_on_runtime_thread("Value::vec");
         unsafe {
             let p = check(sys::ray_vec_from_raw(
                 T::RAY_TYPE,
@@ -62,7 +62,7 @@ impl Value {
 
     /// Build a boolean vector (`RAY_BOOL`) from a slice of `bool`.
     pub fn bool_vec(data: &[bool]) -> Value {
-        assert_live("Value::bool_vec");
+        assert_on_runtime_thread("Value::bool_vec");
         unsafe {
             // bool is a 1-byte 0/1 value — reinterpret as the byte buffer.
             let p = check(sys::ray_vec_from_raw(
@@ -79,7 +79,7 @@ impl Value {
 
     /// Build a symbol vector, interning each string.
     pub fn sym_vec<S: AsRef<str>>(items: &[S]) -> Value {
-        assert_live("Value::sym_vec");
+        assert_on_runtime_thread("Value::sym_vec");
         unsafe {
             let mut v = match check(sys::ray_sym_vec_new(
                 sys::RAY_SYM_W64 as u8,
@@ -99,7 +99,7 @@ impl Value {
 
     /// Build a string vector (`RAY_STR`).
     pub fn str_vec<S: AsRef<str>>(items: &[S]) -> Value {
-        assert_live("Value::str_vec");
+        assert_on_runtime_thread("Value::str_vec");
         unsafe {
             let mut v = match check(sys::ray_vec_new(sys::RAY_STR as i8, items.len() as i64)) {
                 Ok(v) => v,
@@ -119,7 +119,7 @@ impl Value {
 
     /// Allocate an empty vector of the given canonical type with `capacity`.
     pub fn empty_vec(abs_type: i8, capacity: i64) -> Value {
-        assert_live("Value::empty_vec");
+        assert_on_runtime_thread("Value::empty_vec");
         unsafe {
             match check(sys::ray_vec_new(abs_type, capacity)) {
                 Ok(p) => Value::from_owned(p),

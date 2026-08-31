@@ -12,7 +12,7 @@
 #[test]
 #[should_panic(expected = "requires a live Runtime")]
 fn an_atom_cannot_be_built_without_a_runtime() {
-    assert!(!rayforce::is_live());
+    assert!(!rayforce::on_runtime_thread());
     let _ = rayforce::Value::i64(41);
 }
 
@@ -22,6 +22,6 @@ fn a_symbol_cannot_be_built_without_a_runtime() {
     // The sharp case: symbols are runtime-scoped, so with no symbol table to
     // intern into this returned an *empty* symbol — "hello" silently dropped on
     // the floor, no error anywhere.
-    assert!(!rayforce::is_live());
+    assert!(!rayforce::on_runtime_thread());
     let _ = rayforce::Value::sym("hello");
 }

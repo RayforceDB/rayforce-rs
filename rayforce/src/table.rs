@@ -7,7 +7,7 @@
 
 use crate::error::{check, RayError, Result};
 use crate::raw;
-use crate::runtime::assert_live;
+use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
 use rayforce_sys as sys;
 
@@ -25,7 +25,7 @@ impl Table {
     /// Each column is retained by the table; the caller's `Value`s remain valid.
     /// Errors if the counts differ or a name/column is invalid.
     pub fn new<S: AsRef<str>>(names: &[S], columns: &[Value]) -> Result<Table> {
-        assert_live("Table::new");
+        assert_on_runtime_thread("Table::new");
         if names.len() != columns.len() {
             return Err(RayError::binding(format!(
                 "table: {} names but {} columns",
@@ -153,7 +153,7 @@ impl Table {
     /// `"I64"`, `"F64"`, `"SYMBOL"`, `"STR"`, `"DATE"`, `"TIME"`,
     /// `"TIMESTAMP"`, `"B8"`, `"GUID"`, `"I32"`, `"I16"`, `"U8"`).
     pub fn read_csv<S: AsRef<str>>(column_types: &[S], path: &str) -> Result<Table> {
-        assert_live("Table::read_csv");
+        assert_on_runtime_thread("Table::read_csv");
         let upper: Vec<String> = column_types
             .iter()
             .map(|t| normalize_type_token(t.as_ref()))
@@ -199,7 +199,7 @@ impl Table {
 
     /// Load a splayed table from `dir`.
     pub fn load_splayed(dir: &str, sym_path: Option<&str>) -> Result<Table> {
-        assert_live("Table::load_splayed");
+        assert_on_runtime_thread("Table::load_splayed");
         let dir_v = Value::string(dir);
         let sym_v = sym_path.map(Value::string);
         unsafe {
@@ -219,7 +219,7 @@ impl Table {
 
     /// Load a partitioned table named `name` rooted at `root`.
     pub fn load_parted(root: &str, name: &str) -> Result<Table> {
-        assert_live("Table::load_parted");
+        assert_on_runtime_thread("Table::load_parted");
         let root_v = Value::string(root);
         let name_v = Value::sym(name);
         unsafe {

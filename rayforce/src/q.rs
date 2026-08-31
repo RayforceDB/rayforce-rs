@@ -21,7 +21,7 @@ use std::marker::PhantomData;
 use rayforce_sys as sys;
 
 use crate::error::{check, RayError, Result};
-use crate::runtime::assert_live;
+use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
 
 /// An open connection to a Q server. Closed on drop.
@@ -71,7 +71,7 @@ impl QConnection {
         password: &str,
         timeout_ms: i32,
     ) -> Result<Self> {
-        assert_live("QConnection::connect");
+        assert_on_runtime_thread("QConnection::connect");
         let host_c = CString::new(host).map_err(|_| RayError::binding("Q host contains NUL"))?;
         let user_c = CString::new(user).map_err(|_| RayError::binding("Q user contains NUL"))?;
         let pass_c =
@@ -142,7 +142,7 @@ impl Drop for QConnection {
 /// and must run on the thread that owns the [`crate::Runtime`] (like every
 /// other constructor in this crate). A Q server-side error surfaces as `Err`.
 pub fn decode_response(msg: &[u8]) -> Result<Value> {
-    assert_live("q::decode_response");
+    assert_on_runtime_thread("q::decode_response");
     // q_header_t (q.c): endianness, msgtype, compressed, reserved, u32 size.
     // `size` counts the whole message, header included. Little-endian wire only.
     const HEADER_LEN: usize = 8;

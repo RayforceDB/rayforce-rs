@@ -7,7 +7,7 @@
 
 use crate::error::{check, RayError, Result};
 use crate::raw::{self, Raw};
-use crate::runtime::assert_live;
+use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
 use rayforce_sys as sys;
 
@@ -27,43 +27,43 @@ impl Value {
 
     /// A boolean atom (`-RAY_BOOL`).
     pub fn bool(v: bool) -> Value {
-        assert_live("Value::bool");
+        assert_on_runtime_thread("Value::bool");
         unsafe { own(sys::ray_bool(v)) }
     }
     /// An unsigned byte atom (`-RAY_U8`).
     pub fn u8(v: u8) -> Value {
-        assert_live("Value::u8");
+        assert_on_runtime_thread("Value::u8");
         unsafe { own(sys::ray_u8(v)) }
     }
     /// A 16-bit signed integer atom (`-RAY_I16`).
     pub fn i16(v: i16) -> Value {
-        assert_live("Value::i16");
+        assert_on_runtime_thread("Value::i16");
         unsafe { own(sys::ray_i16(v)) }
     }
     /// A 32-bit signed integer atom (`-RAY_I32`).
     pub fn i32(v: i32) -> Value {
-        assert_live("Value::i32");
+        assert_on_runtime_thread("Value::i32");
         unsafe { own(sys::ray_i32(v)) }
     }
     /// A 64-bit signed integer atom (`-RAY_I64`).
     pub fn i64(v: i64) -> Value {
-        assert_live("Value::i64");
+        assert_on_runtime_thread("Value::i64");
         unsafe { own(sys::ray_i64(v)) }
     }
     /// A 32-bit float atom (`-RAY_F32`).
     pub fn f32(v: f32) -> Value {
-        assert_live("Value::f32");
+        assert_on_runtime_thread("Value::f32");
         unsafe { own(sys::ray_f32(v)) }
     }
     /// A 64-bit float atom (`-RAY_F64`).
     pub fn f64(v: f64) -> Value {
-        assert_live("Value::f64");
+        assert_on_runtime_thread("Value::f64");
         unsafe { own(sys::ray_f64(v)) }
     }
 
     /// A symbol atom (`-RAY_SYM`): interns `s` in the global table.
     pub fn sym(s: &str) -> Value {
-        assert_live("Value::sym");
+        assert_on_runtime_thread("Value::sym");
         unsafe {
             let id = sys::ray_sym_intern(s.as_ptr() as *const _, s.len());
             own(sys::ray_sym(id))
@@ -72,7 +72,7 @@ impl Value {
 
     /// A string atom (`-RAY_STR`).
     pub fn string(s: &str) -> Value {
-        assert_live("Value::string");
+        assert_on_runtime_thread("Value::string");
         unsafe { own(sys::ray_str(s.as_ptr() as *const _, s.len())) }
     }
 
@@ -80,7 +80,7 @@ impl Value {
     /// the `ATTR_QUOTED` flag is cleared so the query compiler resolves it by
     /// name rather than treating it as a literal symbol.
     pub fn name_ref(name: &str) -> Value {
-        assert_live("Value::name_ref");
+        assert_on_runtime_thread("Value::name_ref");
         unsafe {
             let id = sys::ray_sym_intern(name.as_ptr() as *const _, name.len());
             let v = own(sys::ray_sym(id));
@@ -91,29 +91,29 @@ impl Value {
 
     /// A date atom: raw days since 2000-01-01.
     pub fn date_days(days: i32) -> Value {
-        assert_live("Value::date_days");
+        assert_on_runtime_thread("Value::date_days");
         unsafe { own(sys::ray_date(days as i64)) }
     }
     /// A time atom: raw milliseconds since midnight.
     pub fn time_millis(ms: i32) -> Value {
-        assert_live("Value::time_millis");
+        assert_on_runtime_thread("Value::time_millis");
         unsafe { own(sys::ray_time(ms as i64)) }
     }
     /// A timestamp atom: raw nanoseconds since 2000-01-01 UTC.
     pub fn timestamp_nanos(ns: i64) -> Value {
-        assert_live("Value::timestamp_nanos");
+        assert_on_runtime_thread("Value::timestamp_nanos");
         unsafe { own(sys::ray_timestamp(ns)) }
     }
 
     /// A GUID atom from 16 raw bytes.
     pub fn guid(bytes: &[u8; 16]) -> Value {
-        assert_live("Value::guid");
+        assert_on_runtime_thread("Value::guid");
         unsafe { own(sys::ray_guid(bytes.as_ptr())) }
     }
 
     /// A typed null atom for the given canonical type id (e.g. [`sys::RAY_I64`]).
     pub fn typed_null(abs_type: i8) -> Value {
-        assert_live("Value::typed_null");
+        assert_on_runtime_thread("Value::typed_null");
         unsafe { own(sys::ray_typed_null(abs_type)) }
     }
 

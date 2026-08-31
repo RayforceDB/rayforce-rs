@@ -5,7 +5,7 @@
 //! are process-local; the client is `!Send`/`!Sync` like the rest of the crate.
 
 use crate::error::{check, materialize, RayError, Result};
-use crate::runtime::assert_live;
+use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
 use rayforce_sys as sys;
 use std::ffi::CString;
@@ -57,7 +57,7 @@ impl TcpClient {
     /// Connect to `host:port`, optionally authenticating. Requires a live
     /// [`crate::Runtime`].
     pub fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<TcpClient> {
-        assert_live("TcpClient::connect");
+        assert_on_runtime_thread("TcpClient::connect");
         let host_c = CString::new(host).map_err(|_| RayError::binding("host contains NUL"))?;
         let user_c = CString::new(user).map_err(|_| RayError::binding("user contains NUL"))?;
         let pass_c =

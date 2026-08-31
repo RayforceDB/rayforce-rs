@@ -42,7 +42,7 @@ pub use lambda::Fn;
 pub use ops::Operation;
 pub use q::QConnection;
 pub use query::{Select, Update};
-pub use runtime::{eval, eval_value, get_global, is_live, set_global, Runtime};
+pub use runtime::{eval, eval_value, get_global, on_runtime_thread, set_global, Runtime};
 pub use table::Table;
 pub use value::Value;
 pub use vector::{VecElem, VecIter};

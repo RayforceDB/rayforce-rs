@@ -73,3 +73,60 @@ fn a_refused_connection_leaves_the_scope_usable() {
     .unwrap();
     Runtime::scope(|rt| rt.eval("1")?.as_i64()).unwrap();
 }
+
+// The guard the three tests below exercise is a *thread* property, not a
+// process one: the engine's VM and heap are both thread-local (`__VM` in the
+// core's src/core/runtime.c, `ray_tl_heap` in src/mem/heap.c), while creating a
+// runtime is what must stay unique process-wide.
+
+#[test]
+fn eval_off_the_runtime_thread_is_refused() {
+    Runtime::scope(|rt| {
+        // Control: the same call on the runtime's own thread works.
+        assert_eq!(rt.eval("(+ 1 1)")?.as_i64()?, 2);
+        // The value never crosses the join — `Value` is `!Send`, so returning
+        // one would not compile. What is under test is the call, not the result.
+        let off = std::thread::spawn(|| rayforce::eval("(+ 1 1)").map(|v| v.as_i64())).join();
+        assert!(
+            off.is_err(),
+            "eval off the runtime's thread must be refused, not dispatched"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn construction_off_the_runtime_thread_is_refused() {
+    Runtime::scope(|_rt| {
+        // Control: on the runtime's thread the symbol interns and reads back.
+        assert_eq!(Value::sym("hello").as_sym()?, "hello");
+        // Off-thread this used to succeed, quietly allocating in a per-thread
+        // heap that no `ray_runtime_destroy` will ever unmap.
+        let off = std::thread::spawn(|| Value::sym("hello").as_sym()).join();
+        assert!(
+            off.is_err(),
+            "constructing off the runtime's thread must be refused"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_second_thread_cannot_start_a_runtime() {
+    // The invariant the thread-local guard must leave alone. `__RUNTIME` in the
+    // core is an unguarded global, so a second `ray_runtime_create` would
+    // overwrite the first; the compare-exchange in `Runtime::new` is the only
+    // thing refusing it, and it stays process-wide for exactly this reason.
+    Runtime::scope(|rt| {
+        let nested = std::thread::spawn(|| Runtime::scope(|rt| rt.eval("1")?.as_i64()))
+            .join()
+            .expect("the second thread must be refused, not crash");
+        assert!(nested.is_err(), "a second runtime must not be creatable");
+        // The refusal left the first runtime intact.
+        assert_eq!(rt.eval("(+ 2 3)")?.as_i64()?, 5);
+        Ok(())
+    })
+    .unwrap();
+}
