@@ -15,7 +15,10 @@ All notable changes to `rayforce` are documented here. This project adheres to
   allocator — AddressSanitizer and Valgrind track `malloc`, which the engine
   never calls, and Miri cannot execute the C library at all. The `test` job now
   runs both flavours; the debug leg reproduces the `Value`-outliving-`Runtime`
-  crash below on the commit before its fix.
+  crash below on the commit before its fix. Both legs then assert the archive
+  they built: `ray_dfd_check_live` must be present on the debug leg and absent on
+  the release one. Without that pair, a break in the `RAYFORCE_CORE_DEBUG`
+  plumbing would turn the debug leg into a second release run that stays green.
 
 - **The IPC tests run in CI.** `tests/ipc.rs` drives `TcpClient` against a
   spawned server and was returning early for want of one — which reports as a
@@ -25,6 +28,15 @@ All notable changes to `rayforce` are documented here. This project adheres to
   `q` server, which cannot be provisioned on a runner.
 
 ### Changed
+
+- **A core-flavour switch rebuilds a `RAYFORCE_SRC` checkout from scratch.**
+  Release and debug objects share every filename and `make` tracks headers but
+  not flags, so a flavour flip would otherwise archive a mixed library. The
+  build script now drops every object under the core's `src/` and the
+  `librayforce.a` beside them on the first build after the flags change, and
+  records them in an untracked `.stamp` file — in your own checkout as well as
+  under `OUT_DIR`, which previously had the only such check. Nothing tracked by
+  git is touched.
 
 - **Breaking: `Runtime::scope` replaces `Runtime::new`.** `Runtime::new` is
   private; the only way to a runtime is
@@ -42,12 +54,29 @@ All notable changes to `rayforce` are documented here. This project adheres to
   `RefCell` borrow) is refused too, with a diagnostic about threads when no
   thread is involved; construct such values inside the closure, or move them in.
 
-- **A live runtime is required for everything except reading and dropping
-  handles you already hold.** `eval`, `set_global`, `get_global`, the value
-  constructors and the connection constructors all answer to the same
-  `is_live()`, which is true only inside a scope.
+- **Breaking: `is_live()` is now `on_runtime_thread()`**, and answers a
+  per-thread question rather than a per-process one. A live runtime is required
+  for everything except reading and dropping handles you already hold: `eval`,
+  `set_global`, `get_global`, the value constructors and the connection
+  constructors all answer to this one predicate, which is true only inside a
+  scope *and* only on the thread that entered it. A `false` result does not mean
+  a runtime can be created — one may be live on another thread, and
+  `Runtime::scope` says so.
 
 ### Fixed
+
+- **Engine calls from another thread are refused instead of segfaulting.** The
+  liveness flag was a process-wide `AtomicBool`, but everything it guards is
+  thread-local: the core's VM (`__VM`) and heap (`ray_tl_heap`) both are. So
+  inside a scope, any other thread saw a live runtime and every guard passed —
+  `std::thread::spawn(|| rayforce::eval("(+ 1 1)"))` crashed in `ray_eval_str`,
+  which dereferences `__VM` with no null check, from safe code with no `unsafe`
+  anywhere. Constructors were quieter but not better: off-thread
+  `Value::sym("hello")` succeeded, allocating into a per-thread heap that no
+  `ray_runtime_destroy` would ever unmap. The guard is now a thread-local, so
+  those calls panic naming the thread; creating a runtime stays process-wide,
+  because the core's `__RUNTIME` is an unguarded global that a second
+  `ray_runtime_create` would overwrite in silence.
 
 - **A `Value` can no longer outlive its `Runtime`.** Dropping the runtime
   unmaps the engine heap, so a handle still alive afterwards released into
