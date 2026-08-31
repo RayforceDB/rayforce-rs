@@ -108,6 +108,41 @@ jobs:
             GIT_HASH="$(field CORE_COMMIT)"
           echo "RAYFORCE_BINARY=$CORE/rayforce" >> "$GITHUB_ENV"
           echo "RAYFORCE_REQUIRE_SERVER=1" >> "$GITHUB_ENV"
+          echo "RAYFORCE_CORE_DIR=$CORE" >> "$GITHUB_ENV"
+
+      # The debug leg's whole purpose is that -DDEBUG reached the archive, and
+      # nothing checked that it did. A break in the RAYFORCE_CORE_DEBUG plumbing
+      # — an env rename, a build.rs refactor, a change in how Actions evaluates
+      # `&& '1' || ''` — would turn this leg into a second release run that stays
+      # green forever: the same shape as the tests/ipc.rs early return the step
+      # above closes.
+      #
+      # Both legs assert, in opposite directions. Without the release-leg
+      # control, a grep that matched nothing anywhere would pass too, which is
+      # precisely the failure being guarded against.
+      #
+      # This proves the detector is compiled in, not that it is armed. Arming is
+      # dfd_enabled() reading RAY_DFD (the core's src/mem/heap.c); the only proof
+      # of that is a deliberate double release, which aborts the process and so
+      # cannot live in the suite.
+      - name: Check the DFD detector matches the core flavour
+        run: |
+          # `grep -c`, not `grep -q`: `-q` exits on the first match, `nm` then
+          # takes SIGPIPE, and under `pipefail` the pipeline reports failure —
+          # so a present symbol reads as absent. That inverts this check into
+          # one that passes for the wrong reason on the release leg, which is
+          # the bug class the whole step exists to catch. Observed locally.
+          n=$(nm "$RAYFORCE_CORE_DIR/librayforce.a" | grep -c ray_dfd_check_live || true)
+          if [ "${{ matrix.core }}" = debug ]; then
+            if [ "$n" -eq 0 ]; then
+              echo "::error::debug archive carries no ray_dfd_check_live — DFD did not compile in, so this leg detects nothing"
+              exit 1
+            fi
+          elif [ "$n" -ne 0 ]; then
+            echo "::error::release archive carries ray_dfd_check_live ($n) — this leg built the debug flavour"
+            exit 1
+          fi
+          echo "${{ matrix.core }} archive: $n ray_dfd_check_live symbols, as expected"
 
       - name: Test
         run: cargo test --workspace
