@@ -345,6 +345,21 @@ fn walk(root: &Path, visit: &mut dyn FnMut(&Path)) {
 /// Makefile tracks header dependencies (`Makefile:143`) but not flag changes,
 /// so editing [`CORE_VERSION`] on its own would otherwise leave the previous
 /// string baked into objects that `make` still considers up to date.
+///
+/// The same blindness is what makes a [`Flavour`] switch unsafe: release and
+/// debug objects share every filename, so make would archive a mixed library.
+/// Both flavour and version ride in the one stamp, so one comparison covers
+/// both.
+///
+/// # This runs for a `RAYFORCE_SRC` checkout too
+///
+/// It has to: only the vendored copy stamps a version, but either tree can flip
+/// flavour, and a mixed archive is as wrong in a checkout the user owns as it is
+/// under OUT_DIR. The consequence is worth stating plainly — in such a checkout
+/// the first build after a flavour change deletes every object under `src/` and
+/// the `librayforce.a` beside them, forcing a full core rebuild, and leaves a
+/// `.stamp` file behind. The objects are `.gitignore`d upstream so nothing
+/// tracked is touched; `.stamp` is not, so it shows up as untracked.
 fn invalidate_on_stamp_change(core: &Path, stamp: &str) {
     let marker = core.join(".stamp");
     if fs::read_to_string(&marker).is_ok_and(|current| current == stamp) {
@@ -384,9 +399,45 @@ fn sanitize_libclang_path() {
     }
 }
 
+/// Which flavour of `librayforce.a` to link.
+///
+/// `Release` is the default and what every published build uses. `Debug` adds
+/// `-DDEBUG`, which compiles in the core's invariant checks and its stale
+/// retain/release detector (`ray_dfd_check_live` in `src/mem/cow.c`) — the only
+/// tool that can see a use-after-free inside the engine's `mmap`-backed pool
+/// allocator, which ASan and Valgrind are structurally blind to. Opt in with
+/// `RAYFORCE_CORE_DEBUG=1`, then run with `RAY_DFD=1` to arm the detector.
+///
+/// Both flavours compile to the same object names, so switching forces a full
+/// rebuild of the core — the flavour rides in the stamp
+/// [`invalidate_on_stamp_change`] compares, and a change drops every object.
+/// CI never pays that: each matrix leg is a fresh checkout building one
+/// flavour. Locally it bites whenever you alternate, because `cargo clippy` and
+/// a debug `cargo test` share one `OUT_DIR` and therefore one staged core.
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum Flavour {
+    Release,
+    Debug,
+}
+
+/// Read the flavour from `RAYFORCE_CORE_DEBUG`, using the same truthiness rule
+/// as the core's own `dfd_enabled()` (`src/mem/heap.c`): set, non-empty, not
+/// `"0"`. The empty-string case is not hypothetical — a GitHub Actions
+/// conditional expression yields `''` for its false branch.
+fn core_flavour() -> Flavour {
+    println!("cargo:rerun-if-env-changed=RAYFORCE_CORE_DEBUG");
+    match env::var("RAYFORCE_CORE_DEBUG") {
+        Ok(v) if !v.is_empty() && v != "0" => Flavour::Debug,
+        _ => Flavour::Release,
+    }
+}
+
 /// Run the core's `make lib`. `stamp_version` is set when the core is our
 /// pinned submodule staged under OUT_DIR, rather than a `RAYFORCE_SRC`
-/// checkout building in place with its own git history.
+/// checkout building in place with its own git history. It selects whether to
+/// pass `RAY_VERSION`/`GIT_HASH`, and nothing else — object invalidation is
+/// deliberately not gated on it, because either tree can flip [`Flavour`]. See
+/// [`invalidate_on_stamp_change`].
 fn build_core_lib(core: &Path, stamp_version: bool) {
     // Cargo budgets build-script parallelism via NUM_JOBS. Without it make runs
     // serially — minutes of wall clock for ~90 translation units at -O3, which
@@ -396,14 +447,27 @@ fn build_core_lib(core: &Path, stamp_version: bool) {
     // Make command-line assignments override the Makefile's own definitions,
     // including `?=` ones.
     let mut defs = vec![format!("WARNS={CORE_WARNS}")];
+    if core_flavour() == Flavour::Debug {
+        // `DEBUG_CFLAGS` from the core's Makefile minus `-fsanitize=address,
+        // undefined`: the sanitizers cannot see into the pool allocator (the
+        // engine says so itself, `src/mem/heap.c`) and linking their runtime
+        // into every Rust test binary buys nothing for the cost. `$(WARNS)`,
+        // `$(STD)` and `$(RAY_MARCH)` are expanded by make from its own
+        // definitions, so only the flavour delta is restated here.
+        defs.push(
+            "RELEASE_CFLAGS=-fPIC $(WARNS) -std=$(STD) -g -O0 \
+             -march=$(RAY_MARCH) -DDEBUG -fno-omit-frame-pointer"
+                .to_string(),
+        );
+    }
     if stamp_version {
         // Staged under OUT_DIR, with no git history of its own — and `git`
         // searches upward, so leaving these unset would report the enclosing
         // repository rather than falling back to "unknown".
         defs.push(format!("RAY_VERSION={CORE_VERSION}"));
         defs.push(format!("GIT_HASH={CORE_COMMIT}"));
-        invalidate_on_stamp_change(core, &defs.join(" "));
     }
+    invalidate_on_stamp_change(core, &defs.join(" "));
 
     let status = Command::new("make")
         .arg("lib")

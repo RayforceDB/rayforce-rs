@@ -51,28 +51,30 @@ copied element by element.
 ```rust
 use rayforce::{col, Runtime, Table, Value};
 
-let _rt = Runtime::new()?;                       // one live runtime per process
+// One live runtime per process; the scope brackets its whole life.
+Runtime::scope(|_rt| {
+    let quotes = Table::new(
+        &["symbol", "bid", "ask"],
+        &[
+            Value::sym_vec(&["AAPL", "AAPL", "AAPL", "GOOG", "GOOG", "GOOG"]),
+            Value::vec(&[100.0f64, 101.0, 102.0, 200.0, 201.0, 202.0]),
+            Value::vec(&[110.0f64, 111.0, 112.0, 210.0, 211.0, 212.0]),
+        ],
+    )?;
 
-let quotes = Table::new(
-    &["symbol", "bid", "ask"],
-    &[
-        Value::sym_vec(&["AAPL", "AAPL", "AAPL", "GOOG", "GOOG", "GOOG"]),
-        Value::vec(&[100.0f64, 101.0, 102.0, 200.0, 201.0, 202.0]),
-        Value::vec(&[110.0f64, 111.0, 112.0, 210.0, 211.0, 212.0]),
-    ],
-)?;
+    let result = quotes
+        .select()
+        .agg("max_bid", col("bid").max())
+        .agg("min_bid", col("bid").min())
+        .agg("avg_ask", col("ask").avg())
+        .agg("count",   col("bid").count())
+        .filter(col("bid").ge(110.0).and(col("ask").gt(100.0)))
+        .by("symbol")
+        .execute()?;
 
-let result = quotes
-    .select()
-    .agg("max_bid", col("bid").max())
-    .agg("min_bid", col("bid").min())
-    .agg("avg_ask", col("ask").avg())
-    .agg("count",   col("bid").count())
-    .filter(col("bid").ge(110.0).and(col("ask").gt(100.0)))
-    .by("symbol")
-    .execute()?;
-
-println!("{result}");
+    println!("{result}");
+    Ok(())
+})?;
 ```
 
 ```text
@@ -145,6 +147,12 @@ checkout. These take precedence over the vendored copies:
 export RAYFORCE_SRC=/path/to/rayforce
 export RAYFORCE_Q_SRC=/path/to/rayforce-q
 ```
+
+Such a checkout is built in place, so incremental state is preserved — except across a
+core-flavour switch. Release and debug objects share every filename, so the first build
+after `RAYFORCE_CORE_DEBUG` changes drops every object under `src/` and the
+`librayforce.a` beside them, and records the flags in an untracked `.stamp`. Nothing
+tracked by git is touched.
 
 `bindgen` locates `libclang` via `LIBCLANG_PATH`. This is deliberately **not** set in the
 repo's `.cargo/config.toml`. If bindgen can't auto-detect libclang, set it yourself:

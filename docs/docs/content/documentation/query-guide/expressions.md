@@ -7,7 +7,8 @@ combine them with operators and methods, and either hand the tree to a
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{col, lit, sum, avg, count, min, max, Expr, Operation, Runtime, Value};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## `col` and `lit`

@@ -8,7 +8,8 @@ owns the [`Runtime`](../../get-started/overview.md).
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{Runtime, Value, ToValue, FromValue, Str, Guid};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## Inspecting a value

@@ -6,8 +6,10 @@ predicate is any [expression](expressions.md) that evaluates to a boolean mask.
 !!! note "Assume a live runtime and the trades table"
     ```rust
     use rayforce::{col, Runtime, Table, Value};
-    let _rt = Runtime::new()?;
-    let t = trades(); // sym / price / size — see the Overview
+    Runtime::scope(|_rt| {
+        let t = trades(); // sym / price / size — see the Overview
+        Ok(())
+    })?;
     ```
 
 ## A single filter

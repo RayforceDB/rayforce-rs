@@ -11,7 +11,8 @@ expression tree (`Expr`), the engine compiles it to a Rayfall program, and
 
     ```rust
     use rayforce::{col, lit, sum, avg, count, min, max, Runtime, Table, Value};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## The query model

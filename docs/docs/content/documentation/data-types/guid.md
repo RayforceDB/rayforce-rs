@@ -6,7 +6,8 @@ for keys that must be unique across machines without coordination.
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{Runtime, Value, Guid};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## Constructor and reader

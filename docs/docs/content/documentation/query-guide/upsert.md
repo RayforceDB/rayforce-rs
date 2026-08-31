@@ -7,7 +7,8 @@ with a new key are **appended**.
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{Runtime, Table, Value};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 ## The `key_columns` argument

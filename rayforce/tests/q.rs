@@ -77,36 +77,41 @@ fn spawn_mock(response: Vec<u8>) -> u16 {
 
 #[test]
 fn q_pulls_a_table() {
-    let _rt = Runtime::new().unwrap();
+    Runtime::scope(|_rt| {
+        let response = msg(&table(
+            &["seq", "sym"],
+            &[long_vec(&[1, 2, 3]), sym_vec(&["AAPL", "MSFT", "GOOG"])],
+        ));
+        let port = spawn_mock(response);
 
-    let response = msg(&table(
-        &["seq", "sym"],
-        &[long_vec(&[1, 2, 3]), sym_vec(&["AAPL", "MSFT", "GOOG"])],
-    ));
-    let port = spawn_mock(response);
+        let conn = QConnection::connect("127.0.0.1", port).unwrap();
+        let v = conn.execute("select from fixmsgs where i > 0").unwrap();
 
-    let conn = QConnection::connect("127.0.0.1", port).unwrap();
-    let v = conn.execute("select from fixmsgs where i > 0").unwrap();
-
-    let t = Table::from_value(v).unwrap();
-    assert_eq!(t.shape(), (3, 2));
-    assert_eq!(
-        t.column("seq").unwrap().as_slice::<i64>().unwrap(),
-        &[1, 2, 3]
-    );
-    let sym = t.column("sym").unwrap();
-    assert_eq!(sym.get(0).unwrap().as_sym().unwrap(), "AAPL");
-    assert_eq!(sym.get(2).unwrap().as_sym().unwrap(), "GOOG");
+        let t = Table::from_value(v).unwrap();
+        assert_eq!(t.shape(), (3, 2));
+        assert_eq!(
+            t.column("seq").unwrap().as_slice::<i64>().unwrap(),
+            &[1, 2, 3]
+        );
+        let sym = t.column("sym").unwrap();
+        assert_eq!(sym.get(0).unwrap().as_sym().unwrap(), "AAPL");
+        assert_eq!(sym.get(2).unwrap().as_sym().unwrap(), "GOOG");
+        Ok(())
+    })
+    .unwrap();
 }
 
 #[test]
 fn q_surfaces_server_error() {
-    let _rt = Runtime::new().unwrap();
-    // Q error frame: type -128 then a NUL-terminated message.
-    let mut body = vec![(-128i8) as u8];
-    body.extend_from_slice(b"type\0");
-    let port = spawn_mock(msg(&body));
+    Runtime::scope(|_rt| {
+        // Q error frame: type -128 then a NUL-terminated message.
+        let mut body = vec![(-128i8) as u8];
+        body.extend_from_slice(b"type\0");
+        let port = spawn_mock(msg(&body));
 
-    let conn = QConnection::connect("127.0.0.1", port).unwrap();
-    assert!(conn.execute("1+`a").is_err());
+        let conn = QConnection::connect("127.0.0.1", port).unwrap();
+        assert!(conn.execute("1+`a").is_err());
+        Ok(())
+    })
+    .unwrap();
 }

@@ -8,16 +8,17 @@ and every column must have the same number of rows.
 ```rust
 use rayforce::{Runtime, Table, Value};
 
-let _rt = Runtime::new()?;
-
-let t = Table::new(
-    &["sym", "price", "size"],
-    &[
-        Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
-        Value::vec(&[101.5f64, 202.0, 303.25]),
-        Value::vec(&[10i64, 20, 30]),
-    ],
-)?;
+Runtime::scope(|_rt| {
+    let t = Table::new(
+        &["sym", "price", "size"],
+        &[
+            Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
+            Value::vec(&[101.5f64, 202.0, 303.25]),
+            Value::vec(&[10i64, 20, 30]),
+        ],
+    )?;
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -61,11 +62,13 @@ before handing a table off to a transform or query.
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["x"], &[Value::vec(&[1i64, 2, 3])])?;
-let snapshot = t.clone();
-let trimmed = t.head(2)?;        // original is untouched
-assert_eq!(snapshot.nrows(), 3);
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["x"], &[Value::vec(&[1i64, 2, 3])])?;
+    let snapshot = t.clone();
+    let trimmed = t.head(2)?;        // original is untouched
+    assert_eq!(snapshot.nrows(), 3);
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 

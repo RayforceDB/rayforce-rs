@@ -8,7 +8,8 @@ the page to read if you care about performance.
 !!! note "Assume a live runtime"
     ```rust
     use rayforce::{Runtime, Value};
-    let _rt = Runtime::new()?;
+    // every snippet below runs inside:
+    Runtime::scope(|rt| { /* … */ })?;
     ```
 
 The numeric element types are captured by the `VecElem` trait:

@@ -7,8 +7,10 @@ optionally restrict the rows touched with `.filter`, and run with `.execute()`.
 !!! note "Assume a live runtime and the trades table"
     ```rust
     use rayforce::{col, Runtime, Table, Value};
-    let _rt = Runtime::new()?;
-    let t = trades(); // sym / price / size — see the Overview
+    Runtime::scope(|_rt| {
+        let t = trades(); // sym / price / size — see the Overview
+        Ok(())
+    })?;
     ```
 
 ## Builder methods

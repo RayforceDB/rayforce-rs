@@ -11,6 +11,23 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      # Both legs must report: a debug-flavour failure is a real memory bug and
+      # cancelling the release leg over it (or vice versa) hides half the story.
+      fail-fast: false
+      matrix:
+        # Which flavour of librayforce.a to link. `debug` compiles the core with
+        # -DDEBUG, arming the engine's stale retain/release detector (DFD) — see
+        # rayforce-sys/build.rs. ASan cannot see into the engine's mmap-backed
+        # pool allocator, so DFD is the only tool for this bug class.
+        core: [release, debug]
+    env:
+      # Job-scoped, not step-scoped: the core binary is built in its own step and
+      # must use the same flavour, or build.rs would see a flavour flip at
+      # `cargo test` time and `make clean` the binary away. Empty on the release
+      # leg — build.rs and the core's dfd_enabled() both read empty as off.
+      RAYFORCE_CORE_DEBUG: ${{ matrix.core == 'debug' && '1' || '' }}
+      RAY_DFD: ${{ matrix.core == 'debug' && '1' || '' }}
     steps:
       # The C core and the rayforce-q client are submodules under
       # rayforce-sys/vendor/, so this one checkout brings the whole build.
@@ -45,13 +62,87 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.core }}-${{ hashFiles('**/Cargo.toml') }}
 
+      # Lints are flavour-independent; running them twice only doubles the wait.
       - name: Format check
+        if: matrix.core == 'release'
         run: cargo fmt --all -- --check
 
       - name: Clippy
+        if: matrix.core == 'release'
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # tests/ipc.rs spawns a real server to exercise TcpClient — the path
+      # Runtime's poll teardown lives on. Without a binary it returns early and
+      # reports as a pass, so that coverage was silently absent from CI.
+      #
+      # Ordering matters: `cargo build` runs build.rs, which stages the vendored
+      # core into OUT_DIR and runs `make lib` there at this leg's flavour. That
+      # staged tree is what `make release` is pointed at, so it reuses those
+      # objects untouched and only adds main.c plus the link — a quarter second,
+      # not a second engine build. On the debug leg the engine objects carry DFD,
+      # so the server checks its own side of every exchange. (main.c itself is
+      # compiled at the Makefile's default RELEASE_CFLAGS either way. `-DDEBUG`
+      # reaches no struct in the public header — only the RAY_ASSERT_VALUE macro
+      # at rayforce.h:216 — so the two agree on layout.)
+      #
+      # The three make variables are read back out of build.rs rather than
+      # restated, the way scripts/check-vendored-pin.sh already reads them: the
+      # vendored build drops -Werror on purpose, and `git` resolving RAY_VERSION
+      # from inside OUT_DIR would stamp this repository's HEAD into the server
+      # binary instead of the core's.
+      - name: Build the core server binary
+        run: |
+          cargo build --workspace --tests
+          # Absolute: cargo runs each test binary with the cwd set to its own
+          # crate root, so a workspace-relative RAYFORCE_BINARY would not resolve.
+          CORE=$(ls -dt "$PWD"/target/debug/build/rayforce-sys-*/out/core 2>/dev/null | head -1)
+          if [ ! -f "$CORE/librayforce.a" ]; then
+            echo "::error::no staged core under target/debug/build — did build.rs run?"; exit 1
+          fi
+          field() { sed -n "s/^const $1: &str = \"\(.*\)\";\$/\1/p" rayforce-sys/build.rs; }
+          make -C "$CORE" release \
+            WARNS="$(field CORE_WARNS)" \
+            RAY_VERSION="$(field CORE_VERSION)" \
+            GIT_HASH="$(field CORE_COMMIT)"
+          echo "RAYFORCE_BINARY=$CORE/rayforce" >> "$GITHUB_ENV"
+          echo "RAYFORCE_REQUIRE_SERVER=1" >> "$GITHUB_ENV"
+          echo "RAYFORCE_CORE_DIR=$CORE" >> "$GITHUB_ENV"
+
+      # The debug leg's whole purpose is that -DDEBUG reached the archive, and
+      # nothing checked that it did. A break in the RAYFORCE_CORE_DEBUG plumbing
+      # — an env rename, a build.rs refactor, a change in how Actions evaluates
+      # `&& '1' || ''` — would turn this leg into a second release run that stays
+      # green forever: the same shape as the tests/ipc.rs early return the step
+      # above closes.
+      #
+      # Both legs assert, in opposite directions. Without the release-leg
+      # control, a grep that matched nothing anywhere would pass too, which is
+      # precisely the failure being guarded against.
+      #
+      # This proves the detector is compiled in, not that it is armed. Arming is
+      # dfd_enabled() reading RAY_DFD (the core's src/mem/heap.c); the only proof
+      # of that is a deliberate double release, which aborts the process and so
+      # cannot live in the suite.
+      - name: Check the DFD detector matches the core flavour
+        run: |
+          # `grep -c`, not `grep -q`: `-q` exits on the first match, `nm` then
+          # takes SIGPIPE, and under `pipefail` the pipeline reports failure —
+          # so a present symbol reads as absent. That inverts this check into
+          # one that passes for the wrong reason on the release leg, which is
+          # the bug class the whole step exists to catch. Observed locally.
+          n=$(nm "$RAYFORCE_CORE_DIR/librayforce.a" | grep -c ray_dfd_check_live || true)
+          if [ "${{ matrix.core }}" = debug ]; then
+            if [ "$n" -eq 0 ]; then
+              echo "::error::debug archive carries no ray_dfd_check_live — DFD did not compile in, so this leg detects nothing"
+              exit 1
+            fi
+          elif [ "$n" -ne 0 ]; then
+            echo "::error::release archive carries ray_dfd_check_live ($n) — this leg built the debug flavour"
+            exit 1
+          fi
+          echo "${{ matrix.core }} archive: $n ray_dfd_check_live symbols, as expected"
 
       - name: Test
         run: cargo test --workspace

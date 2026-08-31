@@ -50,6 +50,16 @@ precedence over the vendored copy, and is built in place so your incremental
 state and the version its git history reports are preserved. `RAYFORCE_Q_SRC`
 does the same for the `rayforce-q` IPC client.
 
+!!! warning "Switching core flavour rebuilds your checkout from scratch"
+
+    The one exception to "incremental state is preserved". Release and debug
+    objects share every filename and `make` tracks headers but not flags, so
+    flipping `RAYFORCE_CORE_DEBUG` would otherwise archive a mixed library. The
+    build script therefore drops every object under `src/` and the
+    `librayforce.a` beside them on the first build after a change, and records
+    the flags in an untracked `.stamp` file next to them. Nothing tracked by git
+    is touched.
+
 ```sh
 export RAYFORCE_SRC=/path/to/rayforce
 export RAYFORCE_Q_SRC=/path/to/rayforce-q

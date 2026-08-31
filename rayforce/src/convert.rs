@@ -6,7 +6,10 @@
 //! in [`Str`] for a string atom. [`Guid`] carries 16 raw bytes. With the
 //! `chrono` feature, date/time/timestamp types convert directly.
 
-use crate::error::{RayError, Result};
+// `RayError` is only constructed by the chrono conversions below.
+#[cfg(feature = "chrono")]
+use crate::error::RayError;
+use crate::error::Result;
 use crate::value::Value;
 
 /// Build a [`Value`] from a Rust value.

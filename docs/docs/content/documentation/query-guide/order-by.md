@@ -7,8 +7,10 @@ builder. The first argument is the list of columns to sort by; the second is a
 !!! note "Assume a live runtime and the trades table"
     ```rust
     use rayforce::{col, Runtime, Table, Value};
-    let _rt = Runtime::new()?;
-    let t = trades(); // sym / price / size — see the Overview
+    Runtime::scope(|_rt| {
+        let t = trades(); // sym / price / size — see the Overview
+        Ok(())
+    })?;
     ```
 
 ## Descending sort

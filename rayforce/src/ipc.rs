@@ -5,6 +5,7 @@
 //! are process-local; the client is `!Send`/`!Sync` like the rest of the crate.
 
 use crate::error::{check, materialize, RayError, Result};
+use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
 use rayforce_sys as sys;
 use std::ffi::CString;
@@ -22,6 +23,31 @@ unsafe fn ensure_poll() {
 }
 
 /// A synchronous IPC connection to a RayforceDB server.
+///
+/// Confined to its [`crate::Runtime::scope`], like a [`Value`]: `ray_ipc_close`
+/// runs on drop and reaches into the runtime, so the heap has to still be mapped
+/// then. Being `!Send` is what keeps it inside — the bounds on `Runtime::scope`
+/// are spelled in terms of `Send`.
+///
+/// # Safety
+///
+/// `!Send`/`!Sync`, and must stay so, twice over: it builds engine objects,
+/// which belong to the runtime thread; and that marker is also what confines it
+/// to its scope.
+///
+/// ```compile_fail
+/// fn assert_send<T: Send>() {}
+/// assert_send::<rayforce::TcpClient>();
+/// ```
+/// ```compile_fail
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<rayforce::TcpClient>();
+/// ```
+/// Control — `compile_fail` passes on *any* build failure, a rename included:
+/// ```
+/// fn assert_exists<T>() {}
+/// assert_exists::<rayforce::TcpClient>();
+/// ```
 pub struct TcpClient {
     handle: i64,
     _not_send: PhantomData<*mut ()>,
@@ -31,6 +57,7 @@ impl TcpClient {
     /// Connect to `host:port`, optionally authenticating. Requires a live
     /// [`crate::Runtime`].
     pub fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<TcpClient> {
+        assert_on_runtime_thread("TcpClient::connect");
         let host_c = CString::new(host).map_err(|_| RayError::binding("host contains NUL"))?;
         let user_c = CString::new(user).map_err(|_| RayError::binding("user contains NUL"))?;
         let pass_c =
@@ -90,6 +117,9 @@ impl TcpClient {
 
 impl Drop for TcpClient {
     fn drop(&mut self) {
+        // Closing a connection releases engine objects held for it, so this
+        // has to run while the heap is still mapped. It does: a client cannot
+        // leave the scope that owns the heap.
         unsafe { sys::ray_ipc_close(self.handle) }
     }
 }

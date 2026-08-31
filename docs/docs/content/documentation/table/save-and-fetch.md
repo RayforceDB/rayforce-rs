@@ -11,18 +11,19 @@ column up front.
 ```rust
 use rayforce::{Runtime, Table, Value};
 
-let _rt = Runtime::new()?;
+Runtime::scope(|_rt| {
+    let t = Table::new(
+        &["sym", "price", "size"],
+        &[
+            Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
+            Value::vec(&[101.5f64, 202.0, 303.25]),
+            Value::vec(&[10i64, 20, 30]),
+        ],
+    )?;
 
-let t = Table::new(
-    &["sym", "price", "size"],
-    &[
-        Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
-        Value::vec(&[101.5f64, 202.0, 303.25]),
-        Value::vec(&[10i64, 20, 30]),
-    ],
-)?;
-
-t.write_csv("/tmp/trades.csv")?;
+    t.write_csv("/tmp/trades.csv")?;
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -34,13 +35,15 @@ column.
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
-# t.write_csv("/tmp/trades.csv")?;
-let loaded = Table::read_csv(&["SYMBOL", "F64", "I64"], "/tmp/trades.csv")?;
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
+    # t.write_csv("/tmp/trades.csv")?;
+    let loaded = Table::read_csv(&["SYMBOL", "F64", "I64"], "/tmp/trades.csv")?;
 
-assert_eq!(loaded.shape(), (3, 3));
-assert_eq!(loaded.column("price")?.as_slice::<f64>()?, &[101.5, 202.0, 303.25]);
+    assert_eq!(loaded.shape(), (3, 3));
+    assert_eq!(loaded.column("price")?.as_slice::<f64>()?, &[101.5, 202.0, 303.25]);
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -75,12 +78,14 @@ case-insensitive (`"i64"` works as well as `"I64"`).
 
 ```rust
 # use rayforce::{Runtime, Table};
-# let _rt = Runtime::new()?;
-// these schemas are equivalent
-# let _ = || -> rayforce::Result<()> {
-let a = Table::read_csv(&["SYM", "F64", "I64"], "/tmp/trades.csv")?;
-let b = Table::read_csv(&["symbol", "f64", "i64"], "/tmp/trades.csv")?;
-# let _ = (a, b); Ok(()) };
+Runtime::scope(|_rt| {
+    // these schemas are equivalent
+    # let _ = || -> rayforce::Result<()> {
+    let a = Table::read_csv(&["SYM", "F64", "I64"], "/tmp/trades.csv")?;
+    let b = Table::read_csv(&["symbol", "f64", "i64"], "/tmp/trades.csv")?;
+    # let _ = (a, b); Ok(()) };
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 

@@ -7,16 +7,17 @@ untouched.
 ```rust
 use rayforce::{Runtime, Table, Value};
 
-let _rt = Runtime::new()?;
-
-let t = Table::new(
-    &["sym", "price", "size"],
-    &[
-        Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
-        Value::vec(&[101.5f64, 202.0, 303.25]),
-        Value::vec(&[10i64, 20, 30]),
-    ],
-)?;
+Runtime::scope(|_rt| {
+    let t = Table::new(
+        &["sym", "price", "size"],
+        &[
+            Value::sym_vec(&["AAPL", "MSFT", "GOOG"]),
+            Value::vec(&[101.5f64, 202.0, 303.25]),
+            Value::vec(&[10i64, 20, 30]),
+        ],
+    )?;
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -24,11 +25,13 @@ let t = Table::new(
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
-let top = t.head(2)?;
-assert_eq!(top.nrows(), 2);
-println!("{top}");
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
+    let top = t.head(2)?;
+    assert_eq!(top.nrows(), 2);
+    println!("{top}");
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -48,10 +51,12 @@ println!("{top}");
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
-let bottom = t.tail(2)?;
-assert_eq!(bottom.column("sym")?.get(0)?.as_sym()?, "MSFT");
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
+    let bottom = t.tail(2)?;
+    assert_eq!(bottom.column("sym")?.get(0)?.as_sym()?, "MSFT");
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
@@ -63,13 +68,15 @@ the front (like `head`), and a **negative** `n` takes from the end (like
 
 ```rust
 # use rayforce::{Runtime, Table, Value};
-# let _rt = Runtime::new()?;
-# let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
-let first_two = t.take(2)?;     // same rows as head(2)
-let last_two  = t.take(-2)?;    // same rows as tail(2)
+Runtime::scope(|_rt| {
+    # let t = Table::new(&["sym","price","size"], &[Value::sym_vec(&["AAPL","MSFT","GOOG"]), Value::vec(&[101.5f64,202.0,303.25]), Value::vec(&[10i64,20,30])])?;
+    let first_two = t.take(2)?;     // same rows as head(2)
+    let last_two  = t.take(-2)?;    // same rows as tail(2)
 
-assert_eq!(first_two.column("sym")?.get(0)?.as_sym()?, "AAPL");
-assert_eq!(last_two.column("sym")?.get(0)?.as_sym()?, "MSFT");
+    assert_eq!(first_two.column("sym")?.get(0)?.as_sym()?, "AAPL");
+    assert_eq!(last_two.column("sym")?.get(0)?.as_sym()?, "MSFT");
+    Ok(())
+})?;
 # Ok::<(), rayforce::RayError>(())
 ```
 
