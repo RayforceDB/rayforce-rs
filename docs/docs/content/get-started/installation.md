@@ -39,6 +39,21 @@ from `git describe`, and a crate unpacked from crates.io has no git history to
 read. `scripts/check-vendored-pin.sh` asserts the two agree, and CI runs it on
 every push.
 
+!!! note "The submodules are fetched over SSH"
+    `.gitmodules` addresses both submodules as `git@github.com:RayforceDB/…`. An
+    existing clone picks that up with `git submodule sync --recursive` before
+    `git submodule update --init --recursive`. Without a GitHub SSH key, rewrite
+    the URLs to https once:
+
+    ```sh
+    git config --global url."https://github.com/".insteadOf "git@github.com:"
+    ```
+
+    A `git = "https://…"` Cargo dependency fetches the submodules through Cargo,
+    which honours that rewrite only when it shells out to `git` — set
+    `net.git-fetch-with-cli = true` in `~/.cargo/config.toml`. A crates.io
+    dependency needs none of this; the sources ship inside the crate.
+
 As a consumer you get the core that matches the `rayforce` version you depend
 on — pick a different core by picking a different `rayforce` release. The two
 sections below are for changing that pin yourself.

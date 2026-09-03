@@ -29,6 +29,17 @@ All notable changes to `rayforce` are documented here. This project adheres to
 
 ### Changed
 
+- **The submodules are addressed over SSH.** `.gitmodules` now points at
+  `git@github.com:RayforceDB/rayforce.git` and `rayforce-q.git`. An existing
+  clone picks the change up with `git submodule sync --recursive`; CI needs
+  nothing, since `actions/checkout` rewrites `git@github.com:` to https with the
+  job token. Without a GitHub SSH key, set
+  `git config --global url."https://github.com/".insteadOf "git@github.com:"`
+  before initializing the submodules — and, for a `git = "https://…"` Cargo
+  dependency, `net.git-fetch-with-cli = true` in `~/.cargo/config.toml` so Cargo
+  fetches through git and honours the rewrite. crates.io users are unaffected:
+  the C sources ship inside the crate.
+
 - **A core-flavour switch rebuilds a `RAYFORCE_SRC` checkout from scratch.**
   Release and debug objects share every filename and `make` tracks headers but
   not flags, so a flavour flip would otherwise archive a mixed library. The

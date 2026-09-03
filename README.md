@@ -102,19 +102,39 @@ rayforce = { git = "https://github.com/RayforceDB/rayforce-rs" }
 
 Requirements: a C toolchain (`make`, `clang`) and `libclang` for `bindgen`.
 
-### Working on the bindings
-
-The C sources live in git submodules under `rayforce-sys/vendor/`, so a checkout needs
-them initialized:
+The C sources are git submodules addressed over SSH (`git@github.com:`), and Cargo
+fetches a git dependency's submodules itself. Without a GitHub SSH key, rewrite the
+URLs to https and make Cargo fetch through `git`, which honours the rewrite:
 
 ```sh
-git clone --recurse-submodules https://github.com/RayforceDB/rayforce-rs
+git config --global url."https://github.com/".insteadOf "git@github.com:"
+```
+
+```toml
+# ~/.cargo/config.toml
+[net]
+git-fetch-with-cli = true
+```
+
+A crates.io dependency needs none of this — the sources ship inside the crate.
+
+### Working on the bindings
+
+The C sources live in git submodules under `rayforce-sys/vendor/`, addressed over SSH,
+so a checkout needs them initialized:
+
+```sh
+git clone --recurse-submodules git@github.com:RayforceDB/rayforce-rs.git
 # in an existing clone:
+git submodule sync --recursive     # picks up a URL change in .gitmodules
 git submodule update --init --recursive
 
 cargo build
 cargo test
 ```
+
+Without a GitHub SSH key, rewrite the submodule URLs to https once with
+`git config --global url."https://github.com/".insteadOf "git@github.com:"`.
 
 ### Choosing the core version
 
