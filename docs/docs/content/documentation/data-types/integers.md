@@ -76,4 +76,4 @@ assert!(v.as_slice::<i32>().is_err());
     `Value::vec(&[1, 2, 3])` is an `I32` vector. For `I64` write
     `Value::vec(&[1i64, 2, 3])`; for `I16` write `Value::vec(&[1i16, 2, 3])`.
 
-See [Vectors](vector.md) for indexing, mutation, slicing, and null bitmaps.
+See [Vectors](vector.md) for indexing, mutation, slicing, and nulls.
