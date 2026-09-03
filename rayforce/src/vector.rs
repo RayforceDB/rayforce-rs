@@ -44,7 +44,9 @@ vec_elem!(f64, sys::RAY_F64);
 impl Value {
     // ---- construction ----
 
-    /// Build a vector from a slice of fixed-width elements (single `memcpy`).
+    /// Build a vector from a slice of fixed-width elements: a single `memcpy`,
+    /// followed by one pass over the payload that raises `HAS_NULLS` if it
+    /// already holds the type's sentinel — see [`Value::is_null_at`].
     pub fn vec<T: VecElem>(data: &[T]) -> Value {
         assert_on_runtime_thread("Value::vec");
         unsafe {
@@ -189,13 +191,34 @@ impl Value {
         }
     }
 
-    /// True if element `idx` is null (consults the vector's null bitmap).
+    /// True if element `idx` is null.
+    ///
+    /// Nulls are in-band. For the sentinel-encoded types (`i16`/`i32`/`i64`,
+    /// `f32`/`f64`, date/time/timestamp, GUID) the core first consults the
+    /// vector's `HAS_NULLS` attribute — raised by [`Value::vec`] when the raw
+    /// payload already holds a sentinel, and by [`Value::set_null`] — and only
+    /// then compares the element against its sentinel (`i64::MIN`, `NaN`, the
+    /// all-zero GUID, ...). Symbol and string vectors skip the gate: the empty
+    /// symbol and the empty string *are* their nulls. `bool`/`u8` vectors are
+    /// never null.
+    ///
+    /// Because of the gate, a numeric sentinel written later through
+    /// [`Value::set`] or [`Value::push`] is not reported here; the boxed atom
+    /// still answers [`Value::is_atom_null`], which is why
+    /// `to_vec::<Option<T>>()` maps it to `None` either way. Use `set_null` to
+    /// null an element.
     pub fn is_null_at(&self, idx: usize) -> bool {
         unsafe { sys::ray_vec_is_null(self.as_ptr(), idx as i64) }
     }
 
-    /// Box element `idx` as a [`Value`]. Returns the null singleton for null
-    /// elements. Bounds-checked.
+    /// Box element `idx` as a [`Value`]. Bounds-checked.
+    ///
+    /// Null elements of the sentinel-encoded types (integers, floats,
+    /// temporals, GUID) come back as the untyped null singleton
+    /// ([`Value::is_null`]). Symbol and string vectors carry their null
+    /// in-band, so an empty element comes back as the empty atom:
+    /// [`Value::is_atom_null`] is true for it and `Option<String>` extraction
+    /// yields `None`, while plain `String` extraction still succeeds.
     pub fn get(&self, idx: usize) -> Result<Value> {
         let n = self.len();
         if idx >= n {
@@ -210,10 +233,15 @@ impl Value {
                 return Ok(Value::from_borrowed(e));
             }
         }
-        if self.is_null_at(idx) {
+        let t = self.abs_type() as u32;
+        // SYM/STR carry their null in-band (the empty symbol / empty string
+        // *is* the null): box it, so callers get an atom `is_atom_null`
+        // recognises. Every other nullable type has a sentinel that would
+        // otherwise box as an ordinary value, so those collapse to the
+        // untyped null singleton.
+        if !matches!(t, sys::RAY_SYM | sys::RAY_STR) && self.is_null_at(idx) {
             return Ok(Value::null());
         }
-        let t = self.abs_type() as u32;
         unsafe {
             let base = raw::data(self.as_ptr());
             let v = match t {
@@ -319,8 +347,14 @@ impl Value {
         }
     }
 
-    /// Mark element `idx` as null (or clear it). Sets the vector's null sentinel
-    /// and `HAS_NULLS` attribute so [`Value::is_null_at`] reports it.
+    /// Mark element `idx` as null: writes the type's sentinel into the payload
+    /// (`i64::MIN`, `NaN`, symbol id 0, the empty string, the all-zero GUID)
+    /// and raises `HAS_NULLS` so [`Value::is_null_at`] reports it. Rejected for
+    /// `bool`/`u8` vectors and for slices.
+    ///
+    /// `is_null = false` is a no-op in the core — it cannot know the prior real
+    /// value — so the sentinel stays and the element remains null until the
+    /// caller overwrites it with [`Value::set`].
     pub fn set_null(&mut self, idx: usize, is_null: bool) -> Result<()> {
         unsafe {
             let e = sys::ray_vec_set_null_checked(self.as_ptr(), idx as i64, is_null);

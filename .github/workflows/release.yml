@@ -22,7 +22,9 @@ jobs:
     steps:
       # The C sources are submodules under rayforce-sys/vendor/, so what is
       # built and published here is exactly what a crates.io consumer gets —
-      # no separate checkout to keep in step with build.rs.
+      # no separate checkout to keep in step with build.rs. The submodule URLs
+      # are SSH; actions/checkout rewrites them to https with the job token
+      # (see ci.yml).
       - name: Checkout bindings
         uses: actions/checkout@v4
         with:

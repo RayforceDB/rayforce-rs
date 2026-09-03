@@ -29,6 +29,31 @@ All notable changes to `rayforce` are documented here. This project adheres to
 
 ### Changed
 
+- **The vendored core is v2.6.0 and `rayforce-q` is 2.1.1** (from v2.5.8 and
+  2.0.0). The core now recognises in-band nulls at construction, which changes
+  what a vector built from a raw buffer reports: `Value::vec(&[1i64, i64::MIN, 3])`
+  answers `is_null_at(1)` and `get(1)` returns the null singleton, where before
+  the sentinel was ordinary data until `set_null` marked it — the engine scans
+  the payload once and raises `HAS_NULLS`, so such values no longer aggregate as
+  data. The empty symbol and the empty string are now their types' nulls:
+  `is_null_at` reports them, but `get` returns the empty atom rather than the
+  null singleton, so `to_vec::<String>()` keeps working and
+  `to_vec::<Option<String>>()` yields `None` for them. `set_null(idx, false)` is
+  a no-op in the core; overwrite the element with `set` instead. The docs no
+  longer describe a "null bitmap": nulls are sentinels behind a `HAS_NULLS`
+  fast-path hint.
+
+- **The submodules are addressed over SSH.** `.gitmodules` now points at
+  `git@github.com:RayforceDB/rayforce.git` and `rayforce-q.git`. An existing
+  clone picks the change up with `git submodule sync --recursive`; CI needs
+  nothing, since `actions/checkout` rewrites `git@github.com:` to https with the
+  job token. Without a GitHub SSH key, set
+  `git config --global url."https://github.com/".insteadOf "git@github.com:"`
+  before initializing the submodules — and, for a `git = "https://…"` Cargo
+  dependency, `net.git-fetch-with-cli = true` in `~/.cargo/config.toml` so Cargo
+  fetches through git and honours the rewrite. crates.io users are unaffected:
+  the C sources ship inside the crate.
+
 - **A core-flavour switch rebuilds a `RAYFORCE_SRC` checkout from scratch.**
   Release and debug objects share every filename and `make` tracks headers but
   not flags, so a flavour flip would otherwise archive a mixed library. The

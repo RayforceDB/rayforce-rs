@@ -24,7 +24,7 @@ use std::process::Command;
 ///
 /// Must match the tag `vendor/rayforce` is pinned to. CI asserts the two agree;
 /// see the "Check vendored core pin" step in `.github/workflows/ci.yml`.
-const CORE_VERSION: &str = "2.5.8";
+const CORE_VERSION: &str = "2.6.0";
 
 /// Commit the `vendor/rayforce` submodule is pinned to, stamped alongside
 /// [`CORE_VERSION`]. Also checked by CI's "Check vendored core pin" step.
@@ -35,7 +35,7 @@ const CORE_VERSION: &str = "2.5.8";
 /// under OUT_DIR, an unset value does not fall back to "unknown" — it silently
 /// reports the HEAD of whatever unrelated repository happens to enclose the
 /// build directory.
-const CORE_COMMIT: &str = "f0d4bb4";
+const CORE_COMMIT: &str = "b3e9aa1";
 
 /// Warning flags for the vendored core build — the core's own `WARNS`
 /// (`Makefile:30`) minus `-Werror`. Consumers compile this with whatever

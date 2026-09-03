@@ -83,9 +83,11 @@ assert!(none.to_value().is_null());
 assert_eq!(Value::i64(i64::MIN).extract::<Option<i64>>()?, None);
 ```
 
-Vectors track nulls in a separate bitmap rather than by inspecting payload bytes.
-A buffer that *happens* to hold a sentinel value is **not** null until it is
-explicitly marked — see [Vectors](vector.md#null-bitmap) for the details.
+Vector nulls are in-band too: an element is null when it holds its type's
+sentinel, so a buffer handed to `Value::vec` that already contains one is null
+from construction, and the empty symbol / empty string is the symbol / string
+null. See [Vectors](vector.md#nulls) for how `is_null_at`, `get` and `set_null`
+behave.
 
 Continue with [Values & Conversions](values.md) for how `Value` interoperates
 with native Rust types.

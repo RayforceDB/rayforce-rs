@@ -94,17 +94,36 @@ fn vector_slice_and_concat() {
 #[test]
 fn vector_nulls() {
     Runtime::scope(|_rt| {
-        // A raw buffer carrying a coincidental sentinel is NOT null until the
-        // HAS_NULLS attribute is set — matching the engine's design.
+        // A raw buffer carrying a sentinel is null from construction: the core
+        // scans the payload once in ray_vec_from_raw and raises HAS_NULLS.
         let raw = Value::vec(&[1i64, i64::MIN, 3]);
-        assert!(!raw.is_null_at(1));
+        assert!(raw.is_null_at(1));
+        assert!(!raw.is_null_at(0) && !raw.is_null_at(2));
+        assert!(raw.get(1).unwrap().is_null());
+        assert_eq!(raw.get(2).unwrap().as_i64().unwrap(), 3);
+        // The payload itself is untouched.
+        assert_eq!(raw.as_slice::<i64>().unwrap(), &[1, i64::MIN, 3]);
+        assert_eq!(
+            raw.to_vec::<Option<i64>>().unwrap(),
+            vec![Some(1), None, Some(3)]
+        );
 
-        // Explicitly marking an element null is the supported path.
+        // Explicitly marking an element null is still the supported path.
         let mut v = Value::vec(&[1i64, 2, 3]);
+        assert!(!v.is_null_at(1));
         v.set_null(1, true).unwrap();
         assert!(v.is_null_at(1));
         assert!(v.get(1).unwrap().is_null());
+        // set_null writes the sentinel; neighbours are untouched.
+        assert_eq!(v.as_slice::<i64>().unwrap(), &[1, i64::MIN, 3]);
         assert_eq!(v.get(0).unwrap().as_i64().unwrap(), 1);
+
+        // Clearing is a no-op in the core; overwriting the element un-nulls it.
+        v.set_null(1, false).unwrap();
+        assert!(v.is_null_at(1));
+        v.set(1, 2i64).unwrap();
+        assert!(!v.is_null_at(1));
+        assert_eq!(v.get(1).unwrap().as_i64().unwrap(), 2);
         Ok(())
     })
     .unwrap();
@@ -123,6 +142,41 @@ fn symbol_and_string_vectors() {
         assert_eq!(
             strs.get(1).unwrap().as_string().unwrap(),
             "a longer value here"
+        );
+
+        // The empty symbol / empty string is the type's in-band null (core
+        // 2.6.0): is_null_at reports it, get() still hands back the empty atom
+        // so String extraction works and Option<String> sees None.
+        let syms = Value::sym_vec(&["a", ""]);
+        assert!(!syms.is_null_at(0));
+        assert!(syms.is_null_at(1));
+        let e = syms.get(1).unwrap();
+        assert!(!e.is_null());
+        assert!(e.is_atom_null());
+        assert_eq!(e.as_sym().unwrap(), "");
+        assert_eq!(
+            syms.to_vec::<String>().unwrap(),
+            vec!["a".to_string(), String::new()]
+        );
+        assert_eq!(
+            syms.to_vec::<Option<String>>().unwrap(),
+            vec![Some("a".to_string()), None]
+        );
+
+        let strs = Value::str_vec(&["hello", ""]);
+        assert!(!strs.is_null_at(0));
+        assert!(strs.is_null_at(1));
+        let e = strs.get(1).unwrap();
+        assert!(!e.is_null());
+        assert!(e.is_atom_null());
+        assert_eq!(e.as_string().unwrap(), "");
+        assert_eq!(
+            strs.to_vec::<String>().unwrap(),
+            vec!["hello".to_string(), String::new()]
+        );
+        assert_eq!(
+            strs.to_vec::<Option<String>>().unwrap(),
+            vec![Some("hello".to_string()), None]
         );
         Ok(())
     })

@@ -31,6 +31,9 @@ jobs:
     steps:
       # The C core and the rayforce-q client are submodules under
       # rayforce-sys/vendor/, so this one checkout brings the whole build.
+      # Their URLs are SSH (git@github.com:); actions/checkout rewrites those to
+      # https with the job token, and persists that rewrite into each submodule
+      # so the pin check below can fetch its tag. Keep persist-credentials on.
       - name: Checkout bindings
         uses: actions/checkout@v4
         with:

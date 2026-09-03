@@ -105,18 +105,25 @@ let c = a.concat(&b)?;
 assert_eq!(c.as_slice::<i64>()?, &[1, 2, 3, 4]);
 ```
 
-## Null bitmap { #null-bitmap }
+## Nulls { #nulls }
 
-Vectors track nulls in a **separate bitmap attribute**, not by scanning payload
-bytes. A buffer that coincidentally contains a sentinel value (e.g. `i64::MIN`)
-is *not* considered null until the element is explicitly marked.
+Nulls live **in-band**: an element is null when it holds its type's sentinel —
+`i16::MIN`, `i32::MIN`, `i64::MIN`, `NaN`, the all-zero GUID, the empty symbol,
+the empty string. For the fixed-width types the engine also keeps a `HAS_NULLS`
+attribute as a fast-path hint and checks it first; `Value::vec` raises it when
+the buffer it is handed already contains a sentinel, and `set_null` raises it
+when marking an element. Symbol and string vectors need no hint: the empty
+value *is* the null.
 
 ```rust
-// A coincidental sentinel is NOT null on its own:
+// A buffer carrying a sentinel is null from construction:
 let raw = Value::vec(&[1i64, i64::MIN, 3]);
-assert!(!raw.is_null_at(1));
+assert!(raw.is_null_at(1));
+assert!(raw.get(1)?.is_null());
+assert_eq!(raw.as_slice::<i64>()?, &[1, i64::MIN, 3]); // payload untouched
+assert_eq!(raw.to_vec::<Option<i64>>()?, vec![Some(1), None, Some(3)]);
 
-// Explicitly marking an element is the supported path:
+// Marking an element null writes the sentinel and raises the hint:
 let mut v = Value::vec(&[1i64, 2, 3]);
 v.set_null(1, true)?;
 assert!(v.is_null_at(1));
@@ -124,11 +131,29 @@ assert!(v.get(1)?.is_null());
 assert_eq!(v.get(0)?.as_i64()?, 1); // neighbors untouched
 ```
 
-!!! note "Why the bitmap matters"
-    Decoupling nulls from payload bytes lets the engine store any in-band value
-    without ambiguity and lets a column be marked null in O(1) without touching
-    the data. Test for nulls with `is_null_at(idx)` rather than comparing against
-    a sentinel.
+An empty symbol or string element is reported by `is_null_at`, but `get` hands
+back the empty atom rather than the null singleton, so plain `String` extraction
+keeps working and `Option<String>` sees the null:
+
+```rust
+let strs = Value::str_vec(&["hello", ""]);
+assert!(strs.is_null_at(1));
+assert_eq!(strs.get(1)?.as_string()?, "");
+assert!(strs.get(1)?.is_atom_null());
+assert_eq!(
+    strs.to_vec::<Option<String>>()?,
+    vec![Some("hello".to_string()), None]
+);
+```
+
+!!! note "Clearing a null, and the hint's blind spot"
+    `set_null(idx, false)` is a no-op — the engine cannot know the value the
+    sentinel replaced — so overwrite the element with `set` to un-null it.
+    Conversely, a numeric sentinel written through `set` or `push` does not
+    raise the hint, so `is_null_at` will not report it; the boxed atom still
+    answers `is_atom_null()` and extracts as `None`. Prefer `set_null` for
+    writing nulls, and `is_null_at(idx)` or `Option<T>` extraction for reading
+    them, over hand-written sentinel comparisons.
 
 ## Constructed vectors match the engine
 
