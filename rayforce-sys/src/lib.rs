@@ -57,3 +57,28 @@ extern "C" {
 pub const Q_ERR_SOCKET: ::std::os::raw::c_int = -1;
 pub const Q_ERR_HANDSHAKE: ::std::os::raw::c_int = -2;
 pub const Q_ERR_TIMEOUT: ::std::os::raw::c_int = -3;
+
+/// `ray_ipc_connect` failure codes.
+///
+/// The public header declares the function with no contract at all
+/// (`include/rayforce.h`); this mirrors the comment on the private
+/// `src/core/ipc.h` declaration and, for [`RAY_IPC_ERR_OS`], the
+/// `connect_fail_code()` classifier in `src/core/ipc.c` that the header's
+/// comment predates. Hand-maintained against a core bump, like `Q_ERR_*`.
+///
+/// [`RAY_IPC_ERR_REFUSED`] is the documented name for -1, but the core also
+/// returns it for a missing poll, a credential buffer overflow and a failed
+/// poll registration — treat it as the catch-all it is.
+pub const RAY_IPC_ERR_REFUSED: i64 = -1;
+/// The server demands credentials and the caller supplied no password.
+pub const RAY_IPC_ERR_AUTH_REQUIRED: i64 = -2;
+/// The server rejected the credentials.
+pub const RAY_IPC_ERR_AUTH_FAILED: i64 = -3;
+/// The peer speaks a different serialization wire version.
+pub const RAY_IPC_ERR_WIRE_VERSION: i64 = -4;
+/// No answer within the connect/handshake budget. The core folds `EAGAIN` and
+/// `EWOULDBLOCK` in here too, so this also covers a live server that is busy
+/// inside a long evaluation.
+pub const RAY_IPC_ERR_TIMEOUT: i64 = -5;
+/// Some other OS error; the core leaves `errno` holding it.
+pub const RAY_IPC_ERR_OS: i64 = -6;

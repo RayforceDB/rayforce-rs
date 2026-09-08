@@ -42,6 +42,16 @@ Runtime::scope(|_rt| {
 # Ok::<(), rayforce::RayError>(())
 ```
 
+A failure names its cause rather than reporting "failed":
+
+| Message ends with | What happened |
+| --- | --- |
+| `connection refused` | Nothing is listening, or the core refused before reaching the peer |
+| `authentication failed` | The server rejected the credentials |
+| `wire version mismatch` | The peer speaks a serialization version this build would misparse |
+| `timed out` | No answer within the 5s budget — including from a server that is up but busy inside a long evaluation |
+| an OS error, e.g. `No route to host (os error 113)` | Anything else the socket layer reported; a host that fails to resolve arrives here |
+
 The connection is **closed on drop** — when the `TcpClient` goes out of scope the
 socket is released. You can also close it explicitly with `client.close()`.
 

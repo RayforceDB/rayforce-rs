@@ -8,6 +8,7 @@ use crate::error::{check, materialize, RayError, Result};
 use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
 use rayforce_sys as sys;
+use std::borrow::Cow;
 use std::ffi::CString;
 use std::marker::PhantomData;
 
@@ -56,6 +57,26 @@ pub struct TcpClient {
 impl TcpClient {
     /// Connect to `host:port`, optionally authenticating. Requires a live
     /// [`crate::Runtime`].
+    ///
+    /// A failure names its cause: the server refused the connection, demanded
+    /// credentials, rejected the ones given, speaks a different wire version,
+    /// did not answer in time, or failed with some other OS error (whose text
+    /// is included). Two of those read less plainly than they look:
+    ///
+    /// - `timed out` also covers a server that is alive and listening but busy
+    ///   inside a long evaluation — the core folds `EAGAIN`/`EWOULDBLOCK` in
+    ///   with `ETIMEDOUT`, because from here they are the same silence. The
+    ///   budget is the core's 5s default; this call does not set one.
+    /// - The OS error text behind the last case comes from `errno`, which the
+    ///   core does not reliably bridge from `WSAGetLastError()` on Windows.
+    ///   Only the Unix targets are built and tested here. A `host` that fails
+    ///   to resolve arrives through it as `No route to host`, because that is
+    ///   the `errno` the core stamps on a name-resolution failure.
+    ///
+    /// `server requires authentication` is not reachable through this method:
+    /// the core raises it when handed a null password, and an empty `password`
+    /// still arrives as a valid pointer to an empty string, which the server
+    /// rejects as a bad credential instead.
     pub fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<TcpClient> {
         assert_on_runtime_thread("TcpClient::connect");
         let host_c = CString::new(host).map_err(|_| RayError::binding("host contains NUL"))?;
@@ -68,8 +89,23 @@ impl TcpClient {
             let handle =
                 sys::ray_ipc_connect(host_c.as_ptr(), port, user_c.as_ptr(), pass_c.as_ptr(), 0);
             if handle < 0 {
+                // Borrowed for the fixed reasons, owned only for the errno
+                // one, so the common paths do not allocate. Nothing runs
+                // between the call returning and the errno read but this
+                // match, which cannot disturb it.
+                let reason: Cow<'static, str> = match handle {
+                    sys::RAY_IPC_ERR_AUTH_REQUIRED => "server requires authentication".into(),
+                    sys::RAY_IPC_ERR_AUTH_FAILED => "authentication failed".into(),
+                    sys::RAY_IPC_ERR_WIRE_VERSION => "wire version mismatch".into(),
+                    sys::RAY_IPC_ERR_TIMEOUT => "timed out".into(),
+                    sys::RAY_IPC_ERR_OS => std::io::Error::last_os_error().to_string().into(),
+                    // RAY_IPC_ERR_REFUSED is the core's catch-all as much as
+                    // it is its "refused", and a future core may return a code
+                    // this build has never heard of.
+                    _ => "connection refused".into(),
+                };
                 return Err(RayError::binding(format!(
-                    "connect to {host}:{port} failed"
+                    "connect to {host}:{port} failed: {reason}"
                 )));
             }
             Ok(TcpClient {

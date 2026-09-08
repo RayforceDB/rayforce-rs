@@ -147,7 +147,7 @@ To move the pin, move both:
 
 ```sh
 git -C rayforce-sys/vendor/rayforce fetch --tags
-git -C rayforce-sys/vendor/rayforce checkout v2.6.0
+git -C rayforce-sys/vendor/rayforce checkout v2.6.1
 git add rayforce-sys/vendor/rayforce
 
 git -C rayforce-sys/vendor/rayforce rev-parse --short=7 HEAD   # CORE_COMMIT
