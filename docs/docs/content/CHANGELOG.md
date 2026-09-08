@@ -43,6 +43,25 @@ All notable changes to `rayforce` are documented here. This project adheres to
   longer describe a "null bitmap": nulls are sentinels behind a `HAS_NULLS`
   fast-path hint.
 
+- **A failed `TcpClient::connect` says why.** Every negative return from the
+  core collapsed into `connect to {host}:{port} failed`, which reads the same
+  whether nothing was listening, the password was wrong, or the peer speaks a
+  wire version this build would misparse every atom of. The core distinguishes
+  six causes — v2.6.1 added two of them — so the message now ends in
+  `connection refused`, `authentication failed`, `wire version mismatch`,
+  `timed out`, or the OS error text, the same shape `QConnection::connect_with`
+  has always used for its own three codes. Two of those read less plainly than
+  they look: `timed out` also covers a server that is alive but busy inside a
+  long evaluation, because the core folds `EAGAIN`/`EWOULDBLOCK` in with
+  `ETIMEDOUT`, and a host that fails to resolve surfaces as `No route to host`,
+  which is the `errno` the core stamps on that failure. `rayforce-sys` gained
+  `RAY_IPC_ERR_*` constants for the codes, mirroring the `Q_ERR_*` ones — the
+  public header declares no contract for them, so they are maintained by hand
+  against `connect_fail_code()` in the core, and an unrecognised code still
+  falls through to `connection refused`. One cause stays out of reach:
+  `server requires authentication` needs a null password, and an empty `&str`
+  arrives as a valid pointer to an empty string.
+
 - **`QConnection` no longer takes the process down when a q peer disappears.**
   The `rayforce-q` pin moves off the 2.1.1 tag to `1eabaf4` — six fixes to
   `q.c`, the one file of that repo this crate compiles, and no tag carries them

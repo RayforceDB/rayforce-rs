@@ -4,7 +4,7 @@
 //! a free port, connect, and exchange queries. Skips if no binary is available.
 
 use rayforce::{Runtime, TcpClient};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -133,11 +133,60 @@ fn client_reports_server_error() {
 }
 
 #[test]
-fn connect_failure_is_an_error() {
+fn connect_failure_names_its_cause() {
     Runtime::scope(|_rt| {
-        // Nothing listening on this port.
+        // free_port() hands back a port it has already released, so nothing is
+        // listening and the kernel answers ECONNREFUSED — the one connect
+        // failure reachable without a peer to misbehave for us.
         let port = free_port();
-        assert!(TcpClient::connect("127.0.0.1", port, "", "").is_err());
+        let e = TcpClient::connect("127.0.0.1", port, "", "")
+            .err()
+            .expect("connect should have failed");
+        let msg = e.to_string();
+        assert!(
+            msg.contains("connection refused"),
+            "expected a named cause, got {msg:?}"
+        );
+        assert!(
+            msg.contains(&port.to_string()),
+            "message lost the port: {msg:?}"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Bind a listener that completes the TCP accept, reads the client's two-byte
+/// handshake, and answers with a wire version the core cannot speak. Returns
+/// the port. `RAY_SERDE_WIRE_VERSION` is 3, so 0xFF is reliably wrong.
+fn spawn_wrong_version_peer() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        if let Ok((mut sock, _)) = listener.accept() {
+            let mut hs = [0u8; 2];
+            let _ = sock.read_exact(&mut hs);
+            let _ = sock.write_all(&[0xFFu8, 0x00]);
+        }
+    });
+    port
+}
+
+#[test]
+fn connect_reports_a_wire_version_mismatch() {
+    // Distinct from a refusal: the peer is listening and answers, it just
+    // speaks a protocol this build would misparse every atom of. Collapsing
+    // the two into "failed" is what this test exists to prevent.
+    Runtime::scope(|_rt| {
+        let port = spawn_wrong_version_peer();
+        let e = TcpClient::connect("127.0.0.1", port, "", "")
+            .err()
+            .expect("connect should have failed");
+        let msg = e.to_string();
+        assert!(
+            msg.contains("wire version mismatch"),
+            "expected a wire-version cause, got {msg:?}"
+        );
         Ok(())
     })
     .unwrap();
