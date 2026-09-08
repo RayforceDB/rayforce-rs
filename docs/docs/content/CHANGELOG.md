@@ -29,7 +29,7 @@ All notable changes to `rayforce` are documented here. This project adheres to
 
 ### Changed
 
-- **The vendored core is v2.6.0 and `rayforce-q` is 2.1.1** (from v2.5.8 and
+- **The vendored core is v2.6.1 and `rayforce-q` is `1eabaf4`** (from v2.5.8 and
   2.0.0). The core now recognises in-band nulls at construction, which changes
   what a vector built from a raw buffer reports: `Value::vec(&[1i64, i64::MIN, 3])`
   answers `is_null_at(1)` and `get(1)` returns the null singleton, where before
@@ -42,6 +42,45 @@ All notable changes to `rayforce` are documented here. This project adheres to
   a no-op in the core; overwrite the element with `set` instead. The docs no
   longer describe a "null bitmap": nulls are sentinels behind a `HAS_NULLS`
   fast-path hint.
+
+- **`QConnection` no longer takes the process down when a q peer disappears.**
+  The `rayforce-q` pin moves off the 2.1.1 tag to `1eabaf4` — six fixes to
+  `q.c`, the one file of that repo this crate compiles, and no tag carries them
+  yet. Writing to a closed peer used to raise `SIGPIPE`, whose default
+  disposition kills the process: a library has no business doing that to its
+  host, and `q_send_all` now passes `MSG_NOSIGNAL` (`SO_NOSIGPIPE` on the BSDs).
+  A reply is accepted only when the frame says it is one, instead of any message
+  type being decoded as the answer to the request in flight. A q identity reply
+  (`::`, what an assignment answers) decodes to the null object rather than
+  failing the exchange with "unsupported wire type". A native `RAY_DICT` result
+  now encodes, where the serializer had no branch for it and gave up. And a
+  malformed reply whose decode left trailing bytes freed an error object through
+  `ray_release` rather than `ray_error_free`. `q.h` is untouched, so nothing in
+  this crate's FFI declarations moves.
+
+- **`count (distinct …)` counts a null as a value inside `by:` groups.** The
+  v2.6.1 core retires the per-group kernel's null-skipping arm: a grouped
+  `count distinct` over a null-bearing column now answers one more than it did,
+  matching what the ungrouped form has always returned. The old convention was
+  not even self-consistent — the serial, partitioned and per-group-buffer
+  kernels disagreed, so the answer moved with the row count, the group count and
+  the core count. Nothing in this crate's surface changes; the numbers coming
+  back from `Select::by(…)` do.
+
+- **The rest of the v2.6.1 engine deltas that reach this crate.** `.csv.read`
+  also accepts Rayfall's dotted temporal spellings (`2024.01.02`,
+  `2024.01.02D01:02:03`) alongside the ISO forms the CSV writer emits, so a file
+  written by `dump` round-trips. `if` with a null branch no longer writes an
+  ordinary huge number where a null belongs — a null atom stays null across
+  widths, and an `F64` past the `int64` range narrows to the integer null rather
+  than an undefined cast. A periodic timer that overruns its period re-arms at
+  the next deadline instead of replaying every fire it missed, and a failing
+  callback prints `timer <id>: error: <code>: <message>`. The engine binary now
+  exits 1 when `-p` cannot bind, rather than running the script and exiting 0
+  with no listener — relevant to `tests/ipc.rs`, which spawns one. `update
+  where:` and `upsert` write in place on a *named* flat table; the builders here
+  pass a table value rather than a quoted name, so they keep taking the copy
+  path and are unaffected.
 
 - **The submodules are addressed over SSH.** `.gitmodules` now points at
   `git@github.com:RayforceDB/rayforce.git` and `rayforce-q.git`. An existing
