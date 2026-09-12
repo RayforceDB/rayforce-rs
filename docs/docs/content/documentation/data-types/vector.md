@@ -111,9 +111,9 @@ Nulls live **in-band**: an element is null when it holds its type's sentinel —
 `i16::MIN`, `i32::MIN`, `i64::MIN`, `NaN`, the all-zero GUID, the empty symbol,
 the empty string. For the fixed-width types the engine also keeps a `HAS_NULLS`
 attribute as a fast-path hint and checks it first; `Value::vec` raises it when
-the buffer it is handed already contains a sentinel, and `set_null` raises it
-when marking an element. Symbol and string vectors need no hint: the empty
-value *is* the null.
+the buffer it is handed already contains a sentinel, `set_null` raises it when
+marking an element, and a `slice` inherits its parent's. Symbol and string
+vectors need no hint: the empty value *is* the null.
 
 ```rust
 // A buffer carrying a sentinel is null from construction:
