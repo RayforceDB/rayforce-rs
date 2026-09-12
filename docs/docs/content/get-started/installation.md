@@ -92,11 +92,11 @@ Moving the pin means moving the submodule and the constants together:
 ```sh
 # 1. Move the submodule to the new tag.
 git -C rayforce-sys/vendor/rayforce fetch --tags
-git -C rayforce-sys/vendor/rayforce checkout v2.6.1
+git -C rayforce-sys/vendor/rayforce checkout v2.6.2
 git add rayforce-sys/vendor/rayforce
 
 # 2. Read back the values build.rs must stamp.
-git -C rayforce-sys/vendor/rayforce describe --tags --exact-match   # -> v2.6.1
+git -C rayforce-sys/vendor/rayforce describe --tags --exact-match   # -> v2.6.2
 git -C rayforce-sys/vendor/rayforce rev-parse --short=7 HEAD        # -> e.g. 1a2b3c4
 ```
 
@@ -104,7 +104,7 @@ Then edit `rayforce-sys/build.rs` to match — `CORE_VERSION` is the tag without
 its leading `v`:
 
 ```rust
-const CORE_VERSION: &str = "2.6.1";
+const CORE_VERSION: &str = "2.6.2";
 const CORE_COMMIT: &str = "1a2b3c4";
 ```
 

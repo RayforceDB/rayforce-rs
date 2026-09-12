@@ -29,7 +29,7 @@ All notable changes to `rayforce` are documented here. This project adheres to
 
 ### Changed
 
-- **The vendored core is v2.6.1 and `rayforce-q` is `1eabaf4`** (from v2.5.8 and
+- **The vendored core is v2.6.2 and `rayforce-q` is `1eabaf4`** (from v2.5.8 and
   2.0.0). The core now recognises in-band nulls at construction, which changes
   what a vector built from a raw buffer reports: `Value::vec(&[1i64, i64::MIN, 3])`
   answers `is_null_at(1)` and `get(1)` returns the null singleton, where before
@@ -100,6 +100,27 @@ All notable changes to `rayforce` are documented here. This project adheres to
   where:` and `upsert` write in place on a *named* flat table; the builders here
   pass a table value rather than a quoted name, so they keep taking the copy
   path and are unaffected.
+
+- **The v2.6.2 engine deltas that reach this crate.** A `Value::slice` of a
+  vector holding nulls inherits its parent's `HAS_NULLS` hint; before, every
+  gate that reads the bit took the window for null-free, so an aggregate over it
+  folded the sentinel in as a value. `is_null_at` on a slice already asked the
+  parent and is unchanged. `Table::save_splayed` derives the on-disk bit from
+  the payload rather than trusting the in-memory header, so a column holding a
+  sentinel reloads with its nulls. `nil?` (`Operation::NilQ`) is element-wise
+  outside queries as it always was inside them: over a vector or a list it
+  answers a `B8` vector, where it used to answer `false`. The parser rejects a
+  symbol, keyword, name or number glued to a quote, a colon or another name
+  character — `['a:1]` is a parse error rather than the two symbols `a` and `1`,
+  and so is `0Na` — so Rayfall text handed to `eval` must separate its tokens.
+  `Table::load_parted` no longer reads a calendar-impossible directory such as
+  `2024.02.31` as a date partition, which it used to normalise silently into
+  `2024.03.02`; a root holding one falls back to symbol partitions. `.log.write`
+  is refused inside an auto-journaled IPC evaluation. The rest lives in the
+  engine binary rather than this crate's surface: the per-connection transmit
+  backlog is configurable (`.ipc.txlimit`, 256 MiB by default — the old fixed
+  cap), `.mc.sub` no longer requires a filter argument, and a script or piped
+  session stays alive until its pending timers are spent.
 
 - **The submodules are addressed over SSH.** `.gitmodules` now points at
   `git@github.com:RayforceDB/rayforce.git` and `rayforce-q.git`. An existing
