@@ -2,7 +2,9 @@
 //! native handler, and receive frames the peer pushes unsolicited.
 //!
 //! Driven by a raw-TCP mock that speaks the Q wire protocol, so no `q` binary
-//! and no `rayforce -q` server is needed. Wire builders mirror `tests/q.rs`.
+//! and no `rayforce -q` server is needed. The builders are in `support::wire`.
+
+mod support;
 
 use std::cell::RefCell;
 use std::io::{Read, Write};
@@ -12,78 +14,7 @@ use std::thread;
 use std::time::Duration;
 
 use rayforce::{env, q::QConnection, Poll, Runtime, Value};
-
-// --- Q wire-format builders (server side) ---------------------------------
-
-/// Symbol atom: type -11, NUL-terminated name.
-fn sym_atom(s: &str) -> Vec<u8> {
-    let mut b = vec![(-11i8) as u8];
-    b.extend_from_slice(s.as_bytes());
-    b.push(0);
-    b
-}
-
-/// Symbol vector: type 11, attrs, int32 len, NUL-terminated names.
-fn sym_vec(syms: &[&str]) -> Vec<u8> {
-    let mut b = vec![11u8, 0u8];
-    b.extend_from_slice(&(syms.len() as i32).to_le_bytes());
-    for s in syms {
-        b.extend_from_slice(s.as_bytes());
-        b.push(0);
-    }
-    b
-}
-
-/// Long (i64) vector: type 7, attrs, int32 len, data.
-fn long_vec(vals: &[i64]) -> Vec<u8> {
-    let mut b = vec![7u8, 0u8];
-    b.extend_from_slice(&(vals.len() as i32).to_le_bytes());
-    for v in vals {
-        b.extend_from_slice(&v.to_le_bytes());
-    }
-    b
-}
-
-/// General list: type 0, attrs, int32 len, then the elements.
-fn list(items: &[Vec<u8>]) -> Vec<u8> {
-    let mut b = vec![0u8, 0u8];
-    b.extend_from_slice(&(items.len() as i32).to_le_bytes());
-    for it in items {
-        b.extend_from_slice(it);
-    }
-    b
-}
-
-/// Dictionary: type 99, keys object, values object.
-fn dict(keys: Vec<u8>, vals: Vec<u8>) -> Vec<u8> {
-    let mut b = vec![99u8];
-    b.extend(keys);
-    b.extend(vals);
-    b
-}
-
-const ASYNC: u8 = 0;
-const RESPONSE: u8 = 2;
-
-/// Wrap a serialized object in the 8-byte Q wire header.
-fn frame(msgtype: u8, body: &[u8]) -> Vec<u8> {
-    let size = (8 + body.len()) as u32;
-    let mut b = vec![1u8, msgtype, 0u8, 0u8]; // little-endian, uncompressed
-    b.extend_from_slice(&size.to_le_bytes());
-    b.extend_from_slice(body);
-    b
-}
-
-/// Read one complete wire message and discard it. False if the peer hung up.
-fn drain_one(sock: &mut std::net::TcpStream) -> bool {
-    let mut hdr = [0u8; 8];
-    if sock.read_exact(&mut hdr).is_err() {
-        return false;
-    }
-    let size = u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]) as usize;
-    let mut body = vec![0u8; size.saturating_sub(8)];
-    sock.read_exact(&mut body).is_ok()
-}
+use support::wire::{dict, drain_one, frame, list, long_vec, sym_atom, sym_vec, ASYNC, RESPONSE};
 
 /// A publisher: handshake, answer one sync request, then push `pushes`.
 ///
