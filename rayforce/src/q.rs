@@ -8,7 +8,8 @@
 //! [`QConnection`] is sync request/reply. To *receive* — a tickerplant or a
 //! dict-form publisher pushing at you — attach it to the event loop with
 //! [`QConnection::attach`] and drive a [`Subscription`]; see that type for why
-//! the plain client cannot do it.
+//! the plain client cannot do it. To *be* the server — accept q peers, answer
+//! their queries, take their pushes — see [`Poll::serve_q`].
 //!
 //! ```no_run
 //! use rayforce::{Runtime, q::QConnection};
@@ -213,6 +214,96 @@ impl Drop for QConnection {
         // to run while the heap is still mapped. It does: a connection cannot
         // leave the scope that owns the heap.
         unsafe { sys::q_close(self.fd) };
+    }
+}
+
+impl Poll {
+    /// Serve the Q wire on `port`: accept peers, evaluate what they send
+    /// synchronously and answer it, dispatch what they push asynchronously to
+    /// the function they name. This is the `rayforce -q` listener, available
+    /// to an embedding: a runtime that defines `upd` in Rayfall and serves a
+    /// port is an RDB a q publisher can write into.
+    ///
+    /// The port has to be a real one: `q_serve` refuses 0, and a port another
+    /// process holds is refused the same way. Frames arrive only while the loop
+    /// runs, so the caller keeps calling [`Poll::run_for`].
+    ///
+    /// ```no_run
+    /// # use rayforce::{Poll, Runtime};
+    /// Runtime::scope(|rt| {
+    ///     rt.eval("(set upd (fn [p] (set last p)))")?;
+    ///     let poll = Poll::install()?;
+    ///     let _listener = poll.serve_q(5010)?;
+    ///     loop {
+    ///         poll.run_for(200)?;   // peers are accepted and served in here
+    ///     }
+    /// })?;
+    /// # Ok::<(), rayforce::RayError>(())
+    /// ```
+    pub fn serve_q(&self, port: u16) -> Result<QListener<'_>> {
+        assert_on_runtime_thread("Poll::serve_q");
+        let id = unsafe { sys::q_serve(self.as_ptr(), i32::from(port)) };
+        if id < 0 {
+            return Err(RayError::binding(format!(
+                "Q: could not listen on port {port}"
+            )));
+        }
+        Ok(QListener {
+            id,
+            port,
+            _poll: PhantomData,
+            _not_send: PhantomData,
+        })
+    }
+}
+
+/// A Q listener registered on the [`Poll`] by [`Poll::serve_q`].
+///
+/// A handle, not an owner: the listening socket belongs to the poll, which
+/// belongs to the runtime, and it is closed when the runtime is torn down.
+/// Dropping this does not stop serving, because the core exposes no way to
+/// deregister a selector through the public header, so there is nothing sound
+/// for a `Drop` to call. Borrowing the `Poll` is what keeps the handle from
+/// outliving the loop it names.
+///
+/// # Safety
+///
+/// `!Send`/`!Sync`, and must stay so: the id names a selector on a loop that
+/// belongs to one thread, and `!Send` is also what confines the handle to its
+/// [`crate::Runtime::scope`].
+///
+/// ```compile_fail
+/// fn assert_send<T: Send>() {}
+/// assert_send::<rayforce::QListener<'static>>();
+/// ```
+/// ```compile_fail
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<rayforce::QListener<'static>>();
+/// ```
+/// Control — `compile_fail` passes on *any* build failure, a rename included:
+/// ```
+/// fn assert_exists<T>() {}
+/// assert_exists::<rayforce::QListener<'static>>();
+/// ```
+pub struct QListener<'p> {
+    /// The poll selector the listening socket was registered under.
+    id: i64,
+    port: u16,
+    /// The borrow is the point: it ties the handle to the loop it names, and a
+    /// raw-pointer marker is what makes the type `!Send`/`!Sync`.
+    _poll: PhantomData<&'p Poll>,
+    _not_send: PhantomData<*mut ()>,
+}
+
+impl QListener<'_> {
+    /// The port being served.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// The poll selector id, for anyone reaching into `sys` with it.
+    pub fn selector_id(&self) -> i64 {
+        self.id
     }
 }
 

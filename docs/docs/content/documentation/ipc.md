@@ -22,10 +22,12 @@ rayforce -p 5000
 
 The server now listens for IPC connections on port `5000`.
 
-!!! info "Embedded server is planned"
-    An embedded `TcpServer` you can run from within Rust is planned but **not yet
-    available** in the bindings. For now, run the standalone `rayforce` binary as
-    shown above.
+!!! info "Serving from Rust"
+    The native listener (`-p`) is not in the bindings yet; run the standalone
+    `rayforce` binary for that. The **Q** listener is: `Poll::serve_q(port)` makes
+    a runtime accept q peers, answer what they send synchronously and dispatch
+    what they push, which is what the `rayforce -q` binary does. See
+    [Serving the Q wire](#serving-the-q-wire) below.
 
 ## :material-lan-connect: Connecting
 
@@ -257,3 +259,30 @@ fn main() -> rayforce::Result<()> {
   `Value::deserialize`.
 - `q::decode_response` — decode a Q message your own transport already read,
   when you want the socket in a separate thread rather than on the event loop.
+
+## :material-server-network: Serving the Q wire
+
+`Poll::serve_q(port)` registers a Q-protocol listener on the runtime's event
+loop. Each peer that connects is served for as long as the loop runs: a string
+sent synchronously is evaluated as Rayfall and answered, and a call pushed
+asynchronously, `(upd; payload)`, is dispatched to whatever `upd` names in the
+global environment, a function defined in Rayfall or one bound with
+`env::bind_vary`. That is an RDB a q publisher can write into:
+
+```rust
+use rayforce::{Poll, Runtime};
+
+Runtime::scope(|rt| {
+    rt.eval("(set upd (fn [p] (set last p)))")?;
+    let poll = Poll::install()?;
+    let _listener = poll.serve_q(5010)?;
+    loop {
+        poll.run_for(200)?;   // peers are accepted and served in here
+    }
+})?;
+# Ok::<(), rayforce::RayError>(())
+```
+
+The `QListener` is a handle, not an owner: the socket belongs to the poll and
+closes with the runtime, and dropping the handle does not stop serving. Port 0
+is refused, so pick the port yourself.
