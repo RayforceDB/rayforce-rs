@@ -27,9 +27,17 @@ All notable changes to `rayforce` are documented here. This project adheres to
   skip. `tests/q_real.rs` still opts out via `RAYFORCE_Q_ADDR`: it needs a real
   `q` server, which cannot be provisioned on a runner.
 
+- **`rayforce-sys` binds the core's new public entry points.** v2.7.0 added
+  `ray_delete` — an in-place row removal on a named table that keeps its key
+  map — and `ray_shallow_bytes` / `ray_retained_bytes`, the native footprint of
+  a value in two well-defined senses, meant for charging a foreign runtime's
+  garbage collector for a wrapper that keeps a Rayforce value alive. All three
+  are declared in `include/rayforce.h`, so bindgen picks them up with no
+  hand-written declaration; the safe crate does not wrap them yet.
+
 ### Changed
 
-- **The vendored core is v2.6.2 and `rayforce-q` is `1eabaf4`** (from v2.5.8 and
+- **The vendored core is v2.8.0 and `rayforce-q` is `1eabaf4`** (from v2.5.8 and
   2.0.0). The core now recognises in-band nulls at construction, which changes
   what a vector built from a raw buffer reports: `Value::vec(&[1i64, i64::MIN, 3])`
   answers `is_null_at(1)` and `get(1)` returns the null singleton, where before
@@ -121,6 +129,34 @@ All notable changes to `rayforce` are documented here. This project adheres to
   backlog is configurable (`.ipc.txlimit`, 256 MiB by default — the old fixed
   cap), `.mc.sub` no longer requires a filter argument, and a script or piped
   session stays alive until its pending timers are spent.
+
+- **The v2.7.0 and v2.8.0 engine deltas that reach this crate.** A grouped
+  `select` that matches no row keeps every aggregate column and every literal
+  projection column, so an empty result has the same shape as a populated one
+  instead of losing columns. Every sort path keeps equal keys in source order,
+  and `pivot` emits its index rows and pivot columns in first-seen order.
+  Grouped `var` / `stddev` are computed numerically stably, and `pearson_corr`
+  answers null when either side has no variance rather than a division
+  artefact. `count (distinct …)` accepts a symbol-vector `by:`. Integer atoms
+  order as `i64` — the integer arms of range comparison no longer round-trip
+  through `f64`. `Table::load_parted` orders integer partitions by value and
+  rejects a directory name past `i64` as corrupt. The table key map that
+  `upsert` builds is now kept on the table and maintained across in-place
+  insert, non-key update and single-row upsert, so repeated keyed upserts stop
+  rebuilding it; copying a table drops it, and `delete` — new in v2.7.0, in
+  place on a named table like `update where:` — keeps it. `find`, `in` and dict
+  `at` consult a hash index when one is attached, admit `STR` needles, and
+  carry the index across `concat`. On the wire, `.ipc.open` takes an options
+  dict with a `compress` threshold, loopback and UNIX-domain links are never
+  compressed, `.ipc.on.close` fires for outbound connections too, and
+  `.ipc.handle` reports the direction; `TcpClient` itself is unchanged, since
+  `ray_ipc_connect` keeps its signature and the threshold variant is private to
+  the core. The core's legacy IPC server API (`ray_ipc_server_t`,
+  `ray_ipc_poll`) is gone; it was private and this crate never bound it. The
+  rest lives in the engine binary: `RAYFORCE_HOME` as the fallback root for
+  relative paths, datalog integer arithmetic checked to `0Nl` on overflow and
+  division by zero, journal archives preserved when rolls share a timestamp,
+  and a multicast framing failure that no longer drops subscribers.
 
 - **The submodules are addressed over SSH.** `.gitmodules` now points at
   `git@github.com:RayforceDB/rayforce.git` and `rayforce-q.git`. An existing
