@@ -154,6 +154,12 @@ pub fn decode_response(msg: &[u8]) -> Result<Value> {
             "Q: only little-endian response messages are supported",
         ));
     }
+    if msg[1] != 2 {
+        return Err(RayError::binding(format!(
+            "Q: expected response message type 2, got {}",
+            msg[1]
+        )));
+    }
     let size = u32::from_le_bytes([msg[4], msg[5], msg[6], msg[7]]) as usize;
     if size != msg.len() {
         return Err(RayError::binding(

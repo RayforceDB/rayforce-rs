@@ -136,3 +136,19 @@ fn decode_response_rejects_big_endian_messages() {
     })
     .unwrap();
 }
+
+#[test]
+fn decode_response_rejects_non_response_messages() {
+    Runtime::scope(|_rt| {
+        let mut response = msg(&long_vec(&[1, 2, 3]));
+        response[1] = 1; // sync request, not response
+
+        let err = q::decode_response(&response).unwrap_err();
+        assert!(
+            err.to_string().contains("expected response message type 2"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
