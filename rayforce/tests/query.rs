@@ -196,6 +196,38 @@ fn head_tail_take() {
             tl.column("size").unwrap().get(0).unwrap().as_i64().unwrap(),
             50
         );
+        let h_neg = t.head(-2).unwrap();
+        assert_eq!(
+            h_neg
+                .column("size")
+                .unwrap()
+                .as_slice::<i64>()
+                .unwrap()
+                .to_vec(),
+            vec![10, 20]
+        );
+        let tl_neg = t.tail(-2).unwrap();
+        assert_eq!(
+            tl_neg
+                .column("size")
+                .unwrap()
+                .as_slice::<i64>()
+                .unwrap()
+                .to_vec(),
+            vec![40, 50]
+        );
+        let take_neg = t.take(-2).unwrap();
+        assert_eq!(
+            take_neg
+                .column("size")
+                .unwrap()
+                .as_slice::<i64>()
+                .unwrap()
+                .to_vec(),
+            vec![40, 50]
+        );
+        assert!(t.head(i64::MIN).is_err());
+        assert!(t.tail(i64::MIN).is_err());
         Ok(())
     })
     .unwrap();

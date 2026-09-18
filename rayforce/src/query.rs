@@ -4,7 +4,7 @@
 //! `(select dict)` and evaluated; `update`/`insert`/`upsert` call the core
 //! query builtins directly. Mirrors `rayforce-py/types/table.py`.
 
-use crate::error::{check, materialize, Result};
+use crate::error::{check, materialize, RayError, Result};
 use crate::expr::Expr;
 use crate::ops::Operation;
 use crate::runtime::eval_value;
@@ -304,12 +304,12 @@ impl Table {
 
     /// First `n` rows.
     pub fn head(&self, n: i64) -> Result<Table> {
-        Table::from_value(take_rows(self.as_value(), n)?)
+        Table::from_value(take_rows(self.as_value(), take_magnitude(n, "head")?)?)
     }
 
     /// Last `n` rows.
     pub fn tail(&self, n: i64) -> Result<Table> {
-        Table::from_value(take_rows(self.as_value(), -n)?)
+        Table::from_value(take_rows(self.as_value(), -take_magnitude(n, "tail")?)?)
     }
 
     /// Take `n` rows (negative counts from the end).
@@ -348,4 +348,9 @@ impl Table {
 fn take_rows(table: &Value, n: i64) -> Result<Value> {
     let ast = Value::list(&[Value::name_ref("take"), table.clone(), Value::i64(n)]);
     eval_value(&ast)
+}
+
+fn take_magnitude(n: i64, op: &str) -> Result<i64> {
+    n.checked_abs()
+        .ok_or_else(|| RayError::binding(format!("{op}: count magnitude overflows i64")))
 }
