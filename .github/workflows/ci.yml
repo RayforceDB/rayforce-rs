@@ -148,6 +148,8 @@ jobs:
           echo "${{ matrix.core }} archive: $n ray_dfd_check_live symbols, as expected"
 
       - name: Test
+        env:
+          RUST_TEST_THREADS: 1
         run: cargo test --workspace
 
       # The vendored sources must actually land in the .crate — that is the
