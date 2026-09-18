@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
 
-use rayforce::{q::QConnection, Runtime, Table};
+use rayforce::{q, q::QConnection, Runtime, Table};
 
 // --- Q wire-format builders (server side) ---------------------------------
 
@@ -48,6 +48,14 @@ fn msg(body: &[u8]) -> Vec<u8> {
     let size = (8 + body.len()) as u32;
     let mut b = vec![1u8, 2u8, 0u8, 0u8]; // little-endian, response, uncompressed
     b.extend_from_slice(&size.to_le_bytes());
+    b.extend_from_slice(body);
+    b
+}
+
+fn msg_big_endian(body: &[u8]) -> Vec<u8> {
+    let size = (8 + body.len()) as u32;
+    let mut b = vec![0u8, 2u8, 0u8, 0u8]; // big-endian, response, uncompressed
+    b.extend_from_slice(&size.to_be_bytes());
     b.extend_from_slice(body);
     b
 }
@@ -111,6 +119,19 @@ fn q_surfaces_server_error() {
 
         let conn = QConnection::connect("127.0.0.1", port).unwrap();
         assert!(conn.execute("1+`a").is_err());
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn decode_response_rejects_big_endian_messages() {
+    Runtime::scope(|_rt| {
+        let err = q::decode_response(&msg_big_endian(&long_vec(&[1, 2, 3]))).unwrap_err();
+        assert!(
+            err.to_string().contains("little-endian"),
+            "unexpected error: {err}"
+        );
         Ok(())
     })
     .unwrap();

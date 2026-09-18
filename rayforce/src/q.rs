@@ -149,6 +149,11 @@ pub fn decode_response(msg: &[u8]) -> Result<Value> {
     if msg.len() < HEADER_LEN {
         return Err(RayError::binding("Q: message shorter than wire header"));
     }
+    if msg[0] != 1 {
+        return Err(RayError::binding(
+            "Q: only little-endian response messages are supported",
+        ));
+    }
     let size = u32::from_le_bytes([msg[4], msg[5], msg[6], msg[7]]) as usize;
     if size != msg.len() {
         return Err(RayError::binding(
