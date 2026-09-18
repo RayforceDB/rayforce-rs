@@ -3,7 +3,7 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 1.1.0
 
 ### Added
 
