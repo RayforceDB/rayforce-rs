@@ -3,6 +3,49 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
+## 1.1.1
+
+### Changed
+
+- **The vendored core is v2.9.0 and `rayforce-q` is still `1eabaf4`** (from
+  v2.8.0). Nothing in the binding layer moves: `include/rayforce.h` changes by
+  a comment only, and the `bindings.rs` bindgen generates is byte-identical to
+  v2.8.0's. Of the private headers bindgen reads, only `src/lang/internal.h`
+  changes — `ray_system_fn` takes the argument-array form and
+  `ray_unsized_read_budget` is new — and neither is in `INTERNAL_FNS`. No
+  source file is added or removed, so `stage_core`, the packaged include globs
+  and the link libraries are untouched.
+
+- **The table accessors are total over `ray_t`.** Handed a value that is not a
+  `RAY_TABLE`, `ray_table_ncols` / `ray_table_nrows` answer 0,
+  `ray_table_col_name` answers -1, `ray_table_schema` and `ray_table_get_col*`
+  answer null, and the two setters do nothing, where v2.8.0 decoded the
+  argument's payload as table slots and could segfault. `ray_table_add_col`
+  answers a `type` error and releases its `tbl` argument — the consume-on-error
+  contract a bad column already had. `Table` only ever passes a table, and
+  `Table::new` already relied on that release, so this reaches raw
+  `rayforce-sys` callers only.
+
+- **The v2.8.1 and v2.9.0 engine deltas that reach this crate**, all through
+  `eval`. `.sys.exec` answers the exit code a shell would report — `3` for
+  `exit 3`, 128 + signum for a signal — rather than the raw `waitpid` status
+  (`768`), and a second argument `'out` answers `{code, out}` with stdout
+  captured; `.sys.info` gains `pid` and `hostname`. `guid` is seeded from the
+  OS per thread: it ran off `rand()`'s default seed before, so every process
+  drew the same GUID sequence, and two processes writing GUID row ids into one
+  table collided. `read` and `read-bytes` read to EOF, so `/proc` and `/sys`
+  files and FIFOs come back with their content instead of an empty string; an
+  unsized stream is bounded by the heap's headroom and fails with `io` past it.
+  A grouped `select` nested two levels under a `where` on a count is no longer
+  filtered by that outer threshold — count-of-count under `where (> n N)` came
+  back empty when the inner counts fell below `N`. Over a splayed or parted
+  table whose symbol column is backed by a symfile, `like`, `strlen`, an `if`
+  branch and a computed group key read the vocabulary off the mapping instead
+  of interning all of it into the global symbol table. Grouping scales with
+  cores, and a `take` on a grouped result selects its top N natively. The
+  core's fixes for IPC lifecycle hooks on threads with no VM do not reach
+  `TcpClient`, which is confined to the runtime's thread.
+
 ## 1.1.0
 
 ### Added
