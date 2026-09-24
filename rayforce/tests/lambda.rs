@@ -17,6 +17,16 @@ fn direct_call_scalar() {
 }
 
 #[test]
+fn accepts_whitespace_after_lambda_open_paren() {
+    Runtime::scope(|_rt| {
+        let square = Fn::new("( fn [x] (* x x))").unwrap();
+        assert_eq!(square.call(&[Value::i64(6)]).unwrap().as_i64().unwrap(), 36);
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn direct_call_multiple_args() {
     Runtime::scope(|_rt| {
         let add = Fn::new("(fn [x y] (+ x y))").unwrap();

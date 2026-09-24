@@ -106,7 +106,7 @@ impl Fn {
     /// Errors if the source is not a `(fn …)` expression or does not evaluate
     /// to a lambda. Requires a live [`crate::Runtime`].
     pub fn new(source: &str) -> Result<Fn> {
-        if !source.trim_start().starts_with("(fn") {
+        if !starts_with_fn_form(source) {
             return Err(RayError::binding(
                 "Fn::new: source must be a `(fn …)` expression",
             ));
@@ -210,6 +210,18 @@ impl Fn {
         ]);
         eval_value(&ast)
     }
+}
+
+fn starts_with_fn_form(source: &str) -> bool {
+    let Some(rest) = source.trim_start().strip_prefix('(') else {
+        return false;
+    };
+    let Some(rest) = rest.trim_start().strip_prefix("fn") else {
+        return false;
+    };
+    rest.chars()
+        .next()
+        .is_some_and(|c| c.is_whitespace() || c == '[' || c == ')')
 }
 
 impl Clone for Fn {
