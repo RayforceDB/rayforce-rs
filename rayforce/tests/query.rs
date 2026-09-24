@@ -121,6 +121,25 @@ fn select_order_by() {
 }
 
 #[test]
+fn count_of_filter_in_select_counts_matching_rows() {
+    Runtime::scope(|_rt| {
+        let t = trades();
+        let r = t
+            .select()
+            .agg("large", col("size").filter(col("price").gt(150.0)).count())
+            .execute()
+            .unwrap();
+        assert_eq!(r.nrows(), 1);
+        assert_eq!(
+            r.column("large").unwrap().get(0).unwrap().as_i64().unwrap(),
+            3
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn update_adds_column() {
     Runtime::scope(|_rt| {
         let t = trades();

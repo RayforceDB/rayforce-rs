@@ -50,6 +50,24 @@ fn dag_rewrite(e: &Expr) -> Expr {
             }
             Expr::Op(Operation::Sum, vec![dag_rewrite(&ops[0])])
         }
+        Expr::Op(Operation::Count, ops) if ops.len() == 1 => {
+            if let Expr::Op(Operation::Filter, f) = &ops[0] {
+                if f.len() == 2 {
+                    return Expr::Op(
+                        Operation::Sum,
+                        vec![Expr::Op(
+                            Operation::If,
+                            vec![
+                                dag_rewrite(&f[1]),
+                                Expr::Lit(Value::i64(1)),
+                                Expr::Lit(Value::i64(0)),
+                            ],
+                        )],
+                    );
+                }
+            }
+            Expr::Op(Operation::Count, vec![dag_rewrite(&ops[0])])
+        }
         Expr::Op(op, ops) => Expr::Op(*op, ops.iter().map(dag_rewrite).collect()),
         Expr::Call(name, ops) => Expr::Call(name.clone(), ops.iter().map(dag_rewrite).collect()),
         other => other.clone(),
