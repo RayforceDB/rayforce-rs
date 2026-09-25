@@ -186,6 +186,9 @@ impl Value {
         }
         unsafe {
             let n = self.len();
+            if n == 0 {
+                return Ok(&[]);
+            }
             let ptr = raw::data(self.as_ptr()) as *const T;
             Ok(std::slice::from_raw_parts(ptr, n))
         }

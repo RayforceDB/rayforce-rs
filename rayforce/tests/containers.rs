@@ -246,8 +246,9 @@ fn bool_and_temporal_slices() {
         assert_eq!(b.bool_slice().unwrap(), &[1u8, 0, 1]);
 
         let dates = Value::empty_vec(rayforce::sys::RAY_DATE as i8, 0);
-        let _ = dates; // construct-by-slice for temporals comes via Value::vec on i32 raw later
-                       // date/time/timestamp readers reject a plain i64 vector
+        assert_eq!(dates.date_days_slice().unwrap(), &[]);
+        // construct-by-slice for temporals comes via Value::vec on i32 raw later
+        // date/time/timestamp readers reject a plain i64 vector
         let v = Value::vec(&[1i64, 2, 3]);
         assert!(v.date_days_slice().is_err());
         assert!(v.timestamp_nanos_slice().is_err());
