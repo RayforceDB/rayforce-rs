@@ -211,6 +211,9 @@ impl Value {
     /// `to_vec::<Option<T>>()` maps it to `None` either way. Use `set_null` to
     /// null an element.
     pub fn is_null_at(&self, idx: usize) -> bool {
+        if !self.is_vec() || idx >= self.len() {
+            return false;
+        }
         unsafe { sys::ray_vec_is_null(self.as_ptr(), idx as i64) }
     }
 
@@ -223,6 +226,12 @@ impl Value {
     /// [`Value::is_atom_null`] is true for it and `Option<String>` extraction
     /// yields `None`, while plain `String` extraction still succeeds.
     pub fn get(&self, idx: usize) -> Result<Value> {
+        if !self.is_vec() && self.type_code() != sys::RAY_LIST as i8 {
+            return Err(RayError::binding(format!(
+                "get: value is not a vector or list (type tag {})",
+                self.type_code()
+            )));
+        }
         let n = self.len();
         if idx >= n {
             return Err(RayError::binding(format!(

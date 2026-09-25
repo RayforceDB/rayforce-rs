@@ -62,6 +62,17 @@ fn vector_get_and_iter() {
 }
 
 #[test]
+fn collection_access_rejects_atoms() {
+    Runtime::scope(|_rt| {
+        let atom = Value::i64(42);
+        assert!(atom.get(0).is_err());
+        assert!(!atom.is_null_at(0));
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn vector_mutation() {
     Runtime::scope(|_rt| {
         let mut v = Value::vec(&[1i64, 2, 3]);
