@@ -33,6 +33,14 @@ impl Table {
                 columns.len()
             )));
         }
+        for (i, c) in columns.iter().enumerate() {
+            if !c.is_vec() && !c.is_list() {
+                return Err(RayError::binding(format!(
+                    "table: column {i} is not a vector or list (type tag {})",
+                    c.type_code()
+                )));
+            }
+        }
         // All columns must share a row count.
         if let Some(first) = columns.first() {
             let nrows = first.len();
