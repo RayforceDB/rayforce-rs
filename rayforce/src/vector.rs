@@ -134,7 +134,15 @@ impl Value {
 
     /// Element count, for vectors / lists / dicts.
     pub fn len(&self) -> usize {
-        unsafe { raw::len(self.as_ptr()).max(0) as usize }
+        unsafe {
+            if self.is_vec() || self.is_list() {
+                raw::len(self.as_ptr()).max(0) as usize
+            } else if self.is_dict() {
+                sys::ray_dict_len(self.as_ptr()).max(0) as usize
+            } else {
+                0
+            }
+        }
     }
 
     /// True if the collection has zero elements.
