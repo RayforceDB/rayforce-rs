@@ -3,6 +3,41 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Changed
+
+- **The vendored core is v2.9.1 and `rayforce-q` is still `1eabaf4`** (from
+  v2.9.0). Nothing in the binding layer moves: `include/rayforce.h` is
+  unchanged, and the `bindings.rs` bindgen generates is byte-identical to
+  v2.9.0's. Of the private headers bindgen reads, `src/lang/eval.h` gains the
+  `while` / `times` forms, `src/lang/internal.h` gains `ray_fold_while_fn`, and
+  `src/ops/ops.h` grows `ray_graph_t` by the select-alias and `if`-arm fields
+  and adds `ray_active_query_literal` — none of them in `INTERNAL_FNS`, whose
+  thirteen signatures are unchanged, and `ray_graph_t` is not in the public
+  surface. No source file is added or removed, so `stage_core`, the packaged
+  include globs and the link libraries are untouched; the Makefile's new
+  Windows (MSYS2) branch is dormant on the platforms this crate builds on.
+
+- **The v2.9.1 engine deltas that reach this crate.** `Value::deserialize`
+  rejects a buffer whose payload runs past the object it encodes with a
+  `domain` error (`N trailing payload bytes`) instead of answering the object:
+  `ray_de` checked the header length but not that the object consumed all of
+  it. Everything else arrives through `eval`. The language gains `while`,
+  `times` and `fold-while`. In a `select`, a projection sees the projections
+  before it, so a computed column is usable by the next one in the same query.
+  Window, sort and limit queries release their input table on every path, and
+  a grouped top-N keeps at most N groups when keys tie. `like` and `in` over
+  text columns run their typed column kernels; a join skips per-cell null
+  tests on key columns proven null-free; the worker pool wakes only the
+  workers a dispatch can keep busy and hands each worker its freed blocks back
+  at the end of every dispatch. The `.sys.*` builtins validate their integer
+  arguments and report arity errors for extra arguments, and the server binary
+  rejects a flag given as another flag's value, and unknown options. The i64
+  formatting fix (a 32-bit `long` on the way out) and the Windows port — a
+  WSAPoll event loop, Winsock errno mapping, the platform layer — change
+  nothing on Linux or macOS.
+
 ## 1.1.1
 
 ### Changed
