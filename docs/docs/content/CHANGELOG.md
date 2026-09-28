@@ -3,7 +3,7 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 1.1.2
 
 ### Changed
 
@@ -37,6 +37,29 @@ All notable changes to `rayforce` are documented here. This project adheres to
   formatting fix (a 32-bit `long` on the way out) and the Windows port — a
   WSAPoll event loop, Winsock errno mapping, the platform layer — change
   nothing on Linux or macOS.
+
+### Fixed
+
+- **`Table::head(n)` and `Table::tail(n)` use the magnitude of `n`**, as the
+  table transform page says and as `take` does with the sign. Both handed `n`
+  straight to the core's signed `take`, so `head(-2)` answered the last two
+  rows and `tail(-2)` the first two; `i64::MIN` is a `binding` error now
+  instead of an overflow.
+
+- **A zero-copy slice of an empty vector is `&[]` without reading the data
+  pointer.** `slice::from_raw_parts` requires a non-null, aligned pointer even
+  for a zero length, so the empty case answers before the core's data pointer
+  is consulted.
+
+- **`Value::get` refuses a value that is neither a vector nor a list** with a
+  `binding` error, and `Value::is_null_at` answers `false` for a non-vector or
+  an out-of-range index, so neither reaches `ray_list_get` / `ray_vec_is_null`
+  with an atom, a table or a dict.
+
+- **`q::decode_response` validates the frame header before the body**: a
+  big-endian frame, or a message type other than RESPONSE (2), is refused with
+  an explicit error, as the C client already does inside `q_send`.
+  `QConnection::execute` goes through that C path and was never affected.
 
 ## 1.1.1
 
