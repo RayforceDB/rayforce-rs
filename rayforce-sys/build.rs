@@ -157,25 +157,28 @@ fn main() {
         .header(include.join("rayforce.h").display().to_string())
         .clang_arg(format!("-I{}", include.display()))
         .clang_arg(format!("-I{}", core.join("src").display()))
-        // bindgen 0.70 cannot resolve C11 atomics and aborts the whole parse
-        // with "Couldn't resolve constant type" — reached here via
-        // `lang/internal.h` -> `mem/heap.h:442`, the only header declaring
-        // ray_{set,get}_splayed_fn / ray_get_parted_fn. Defining the keyword
-        // away costs nothing: the only two atomics in the parse are the file
-        // scope globals `ray_heap_pending_merge` (`mem/heap.h:442`) and
-        // `ray_parallel_flag` (`core/platform.h:179`), neither allowlisted, and
-        // no generated type contains one — `include/rayforce.h` never says
-        // `_Atomic`. So no layout bindgen emits can shift. This affects only
-        // bindgen's parse; the core itself is compiled by its own Makefile.
+        // bindgen 0.70 cannot resolve the type of a C11 `_Atomic` variable and
+        // aborts the whole parse with "Couldn't resolve constant type". The
+        // parse reaches the core's atomics only through `lang/internal.h`, the
+        // only header declaring ray_{set,get}_splayed_fn / ray_get_parted_fn,
+        // which includes `mem/heap.h`, which includes `core/platform.h`.
+        // Defining the keyword away costs nothing. The atomics found there are
+        // the file scope globals `ray_heap_pending_merge` (`mem/heap.h:552`)
+        // and `ray_parallel_flag` (`core/platform.h:186`) and the `foreign`
+        // field of `ray_heap_t` (`mem/heap.h:532`). Neither global is
+        // allowlisted, `ray_heap_t` is reachable from nothing that is, and
+        // `include/rayforce.h` never says `_Atomic` — so no generated type
+        // contains one, and no layout bindgen emits can shift. This only
+        // affects bindgen's parse; the core is compiled by its own Makefile.
         .clang_arg("-D_Atomic(T)=T")
         // Everything the public header declares. This bound is load-bearing:
-        // the private headers added below declare ~550 functions and ~80 RAY_*
+        // the private headers added below declare ~640 functions and ~80 RAY_*
         // constants between them, so a blanket `ray_.*` would drag in the whole
         // internal surface. Anchored loosely because the staged path lives under
         // OUT_DIR, which may itself contain regex metacharacters.
         .allowlist_file(".*/include/rayforce\\.h")
-        // The public header leaves ray_runtime_s incomplete (`rayforce.h:656`)
-        // and `core/runtime.h:114` completes it. Left alone, bindgen would
+        // The public header leaves ray_runtime_s incomplete (`rayforce.h:763`)
+        // and `core/runtime.h:117` completes it. Left alone, bindgen would
         // publish the runtime internals — ray_vm_t and friends, ~67 KB of
         // private layout that would then churn on every core bump. Opaque
         // keeps it a handle, which is all the public API ever passes around.
@@ -246,8 +249,8 @@ fn out_dir() -> PathBuf {
 /// Mirror the parts of the vendored core that `make lib` needs into
 /// `OUT_DIR/core`, and return that path.
 ///
-/// The core's Makefile builds strictly in-tree — `Makefile:129` names objects
-/// `src/<dir>/<file>.rel.o` and `Makefile:185` drops `librayforce.a` at the
+/// The core's Makefile builds strictly in-tree — `Makefile:156` names objects
+/// `src/<dir>/<file>.rel.o` and `Makefile:212` drops `librayforce.a` at the
 /// root — so running it where the sources sit would write into the crate's own
 /// directory. For a crates.io consumer that is the shared registry cache, and
 /// it is what makes `cargo package`'s verify step fail with "files added".
@@ -311,7 +314,7 @@ fn is_current(from: &Path, to: &Path) -> bool {
 
 /// Delete staged sources that no longer exist upstream. Without this, a file
 /// dropped by a core version bump would linger in OUT_DIR and still be compiled
-/// in via the Makefile's `$(wildcard src/*/*.c)` (`Makefile:120`). Only `.c` /
+/// in via the Makefile's `$(wildcard src/*/*.c)` (`Makefile:147`). Only `.c` /
 /// `.h` are considered, so the objects and archive built here survive.
 fn prune_stale(dst: &Path, staged: &HashSet<PathBuf>) {
     for root in [dst.join("src"), dst.join("include")] {
@@ -342,7 +345,7 @@ fn walk(root: &Path, visit: &mut dyn FnMut(&Path)) {
 }
 
 /// Drop the compiled objects when the flags stamped into them change. The
-/// Makefile tracks header dependencies (`Makefile:143`) but not flag changes,
+/// Makefile tracks header dependencies (`Makefile:39`) but not flag changes,
 /// so editing [`CORE_VERSION`] on its own would otherwise leave the previous
 /// string baked into objects that `make` still considers up to date.
 ///

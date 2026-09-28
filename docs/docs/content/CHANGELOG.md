@@ -3,6 +3,36 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Changed
+
+- **The vendored `rayforce-q` is `cdbdecb`** (from `1eabaf4`); it has no tag
+  past 2.1.1, and `cdbdecb` is its `master`. `q.h` is unchanged, and only
+  `q.c` is built here, so `rayforce-q`'s server-side changes do not reach this
+  crate.
+
+- **q minute, second and month values decode by unit.** `QConnection::execute`
+  and `q::decode_response` re-tagged them without converting: a minute or
+  second count became that many milliseconds of `TIME`, and a month count that
+  many days of `DATE`, so `01:30` read back as `00:00:00.090` and `2024.03m` as
+  `2000.10.17`. They now come back as `01:30:00.000` and `2024.03.01` — the
+  month's first day, as q's `` `date$ `` gives it. A value the target cannot
+  hold, such as the `0W` infinities or a datetime past the `TIMESTAMP` range,
+  decodes to the typed null instead of wrapping into a plausible wrong value.
+
+- **The q decoder rejects more malformed responses, and reports them
+  differently.** A table frame without the `0 99` marker used to decode as a
+  table and is now refused; a login handshake answering a capability above 3
+  fails as `handshake/auth failed`; a compressed body declaring more than
+  256 MiB fails as `decompression failed`. A failure inside the body used to
+  surface as `Q: q: trailing bytes after object` whatever its cause. `q_decode`
+  now hands back the decoder's own error object, which arrives as an engine
+  `RayError` — but `rayforce-q` passes its reason as the error *code*, which
+  the core cuts to seven bytes, so it reads `q: buff` or `q: malf` with an
+  empty message. That wording is an upstream defect; do not match on the text
+  of these errors.
+
 ## 1.1.2
 
 ### Changed
