@@ -88,7 +88,7 @@ jobs:
       # so the server checks its own side of every exchange. (main.c itself is
       # compiled at the Makefile's default RELEASE_CFLAGS either way. `-DDEBUG`
       # reaches no struct in the public header — only the RAY_ASSERT_VALUE macro
-      # at rayforce.h:216 — so the two agree on layout.)
+      # at rayforce.h:238 — so the two agree on layout.)
       #
       # The three make variables are read back out of build.rs rather than
       # restated, the way scripts/check-vendored-pin.sh already reads them: the
