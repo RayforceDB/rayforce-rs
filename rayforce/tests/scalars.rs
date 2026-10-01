@@ -100,6 +100,17 @@ fn type_mismatch_errors() {
 }
 
 #[test]
+fn atom_len_is_empty() {
+    Runtime::scope(|_rt| {
+        let v = Value::i64(42);
+        assert_eq!(v.len(), 0);
+        assert!(v.is_empty());
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn to_from_value_traits() {
     Runtime::scope(|_rt| {
         assert_eq!(42i64.to_value().extract::<i64>().unwrap(), 42);
