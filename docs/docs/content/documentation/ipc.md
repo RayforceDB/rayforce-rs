@@ -107,6 +107,40 @@ Runtime::scope(|_rt| {
 # Ok::<(), rayforce::RayError>(())
 ```
 
+### :material-timer-outline: Bounding a request
+
+`execute` and `send` wait as long as the server takes. To give up after a while,
+use `execute_timeout` or `send_timeout` with a `Duration`. The deadline covers
+the whole round trip, sending the request included:
+
+```rust
+use rayforce::{ErrorCode, Runtime, TcpClient};
+use std::time::Duration;
+Runtime::scope(|_rt| {
+    let client = TcpClient::connect("127.0.0.1", 5000, "", "")?;
+
+    match client.execute_timeout("(+ 1 2)", Duration::from_secs(2)) {
+        Ok(v) => println!("{}", v.as_i64()?),
+        Err(e) if e.code == ErrorCode::Io => println!("gave up: {e}"),
+        Err(e) => return Err(e),
+    }
+    Ok(())
+})?;
+# Ok::<(), rayforce::RayError>(())
+```
+
+When the deadline passes, the server is asked to cancel the query, as with
+Ctrl-C, and **the connection is closed**. A reply carries no request id, so a
+late one would otherwise be read as the answer to your next request. Every later
+call on that client fails straight away; connect again to carry on. The same
+goes for a server that goes away during any request. An error the server
+*answers* with, such as an unknown symbol, leaves the connection open.
+
+The timeout is rounded up to whole milliseconds. `Duration::ZERO` is refused,
+because the core would read a zero timeout as no deadline at all.
+
+### :material-send-outline: Fire and forget
+
 For fire-and-forget messages where you do not need a reply, `send_async` sends a
 value and returns immediately:
 

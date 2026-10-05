@@ -13,9 +13,28 @@ All notable changes to `rayforce` are documented here. This project adheres to
   smaller of physical RAM and the process's cgroup memory limit),
   `ray_sym_bytes` (the global symbol table's string storage) and
   `ray_ipc_send_timeout` (`ray_ipc_send` with a round-trip deadline, which
-  closes the connection on expiry). The safe crate does not wrap them yet.
+  closes the connection on expiry). Of these, the safe crate wraps only
+  `ray_ipc_send_timeout`, below.
+
+- **`TcpClient::send_timeout` and `TcpClient::execute_timeout`** bound a
+  request with a `Duration` that covers the whole round trip, sending the
+  request included. On expiry the core cancels the query on the server, as
+  Ctrl-C does, closes the connection and answers an `io` error. The client
+  then stays closed: a reply carries no request id, so the connection cannot
+  be reused. The timeout is rounded up to whole milliseconds, and
+  `Duration::ZERO` is refused with a `binding` error, because the core reads
+  0 as no deadline.
 
 ### Changed
+
+- **`rayforce-sys` binds `ray_ipc_tx_info`** from the core's private
+  `src/core/ipc.h`, which is now one of the headers bindgen reads.
+  `TcpClient` uses it to tell whether a failed send closed its connection.
+  That header completes `struct ray_poll`, so `ray_poll` is now generated as
+  an opaque 320-byte blob instead of an incomplete type, the same treatment
+  `ray_runtime_s` gets. Only pointers to it cross the API. With it come
+  `ray_ipc_tx_info_t`, a plain six-field struct, and nothing else of the
+  poll's or its selectors' private layout.
 
 - **The vendored core is v2.11.0 and `rayforce-q` is 2.2.0 (`139e4fd`)** (from
   v2.9.1 and `1eabaf4`). Apart from the four additions above, the binding layer
@@ -92,6 +111,20 @@ All notable changes to `rayforce` are documented here. This project adheres to
   the core cuts to seven bytes, so it reads `q: buff` or `q: malf` with an
   empty message. That wording is an upstream defect; do not match on the text
   of these errors.
+
+### Fixed
+
+- **A `TcpClient` whose connection the core has closed no longer reaches the
+  next connection opened.** A handle is a slot in the runtime's poll, and the
+  next connection takes the lowest free one. When a server went away
+  mid-request, the core closed the connection and freed its slot, but the
+  client kept the handle. Its next `send` then went to whichever connection
+  had taken the slot since, and dropping it closed that connection. A failed
+  send now asks the core whether the handle is still live, and if not the
+  client forgets it: later calls fail without touching the network, and drop
+  closes nothing. An error the server answers with leaves the connection
+  open. The core's keepalive in v2.11.0 closes dead connections more often,
+  and every `send_timeout` expiry closes one, which is why this mattered now.
 
 ## 1.1.2
 

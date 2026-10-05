@@ -55,6 +55,7 @@ const CORE_PRIVATE_HEADERS: &[&str] = &[
     "ops/ops.h",
     "store/serde.h",
     "core/runtime.h",
+    "core/ipc.h",
 ];
 
 /// Symbols the safe crate calls that `include/rayforce.h` does not declare.
@@ -86,6 +87,8 @@ const INTERNAL_FNS: &[&str] = &[
     "ray_de",
     // src/core/runtime.h — last per-VM error message (set with a RAY_ERROR)
     "ray_error_msg",
+    // src/core/ipc.h — whether a handle still names a live connection
+    "ray_ipc_tx_info",
 ];
 
 fn main() {
@@ -170,9 +173,15 @@ fn main() {
         // `include/rayforce.h` never says `_Atomic` — so no generated type
         // contains one, and no layout bindgen emits can shift. This only
         // affects bindgen's parse; the core is compiled by its own Makefile.
+        //
+        // `core/ipc.h` brings a fourth through `core/poll.h`: the `code` field
+        // of `struct ray_poll` (`core/poll.h:116`), spelled as the qualifier
+        // `_Atomic int64_t`, which this function-like define does not touch.
+        // bindgen parses that form without aborting but types the field `u64`;
+        // it stays out of the bindings only because `ray_poll` is opaque below.
         .clang_arg("-D_Atomic(T)=T")
         // Everything the public header declares. This bound is load-bearing:
-        // the private headers added below declare ~640 functions and ~80 RAY_*
+        // the private headers added below declare ~660 functions and ~100 RAY_*
         // constants between them, so a blanket `ray_.*` would drag in the whole
         // internal surface. Anchored loosely because the staged path lives under
         // OUT_DIR, which may itself contain regex metacharacters.
@@ -183,6 +192,10 @@ fn main() {
         // private layout that would then churn on every core bump. Opaque
         // keeps it a handle, which is all the public API ever passes around.
         .opaque_type("ray_runtime_s")
+        // The same for the poll: `rayforce.h:800` leaves `struct ray_poll`
+        // incomplete and `core/poll.h:108` completes it, and left alone it
+        // would publish the selector table and every type it reaches.
+        .opaque_type("ray_poll")
         // ray_t is a union with a flexible array member + nested anon structs;
         // let bindgen represent it faithfully.
         .layout_tests(true)

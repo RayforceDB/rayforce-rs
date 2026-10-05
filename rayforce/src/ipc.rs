@@ -1,16 +1,20 @@
 //! IPC client for talking to a RayforceDB server over TCP.
 //!
 //! [`TcpClient`] wraps the core's blocking client API (`ray_ipc_connect` /
-//! `ray_ipc_send` / `ray_ipc_send_async` / `ray_ipc_close`). Connection handles
-//! are process-local; the client is `!Send`/`!Sync` like the rest of the crate.
+//! `ray_ipc_send_timeout` / `ray_ipc_send_async` / `ray_ipc_close`). Connection
+//! handles are process-local; the client is `!Send`/`!Sync` like the rest of
+//! the crate.
 
 use crate::error::{check, materialize, RayError, Result};
 use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
 use rayforce_sys as sys;
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::ffi::CString;
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
+use std::time::Duration;
 
 /// Ensure the runtime has a poll object (required before connecting).
 unsafe fn ensure_poll() {
@@ -21,6 +25,40 @@ unsafe fn ensure_poll() {
         let p = sys::ray_poll_create();
         sys::ray_runtime_set_poll(p.cast());
     }
+}
+
+/// Whether `handle` names a live connection in the runtime's poll.
+///
+/// A handle is a slot in the poll's selector table, and a slot is reused: the
+/// next connection opened takes the lowest free one. So this answers whether
+/// *a* connection sits there, not whether it is the one the handle was issued
+/// for. Asked right after a send on `handle` returns, the two agree, unless the
+/// exchange itself opened a connection — a frame the server pushed meanwhile,
+/// evaluated here, calling `.ipc.open`.
+unsafe fn is_live(handle: i64) -> bool {
+    let mut info = MaybeUninit::<sys::ray_ipc_tx_info_t>::uninit();
+    sys::ray_ipc_tx_info(handle, info.as_mut_ptr()) == sys::ray_err_t_RAY_OK
+}
+
+/// What [`TcpClient`] holds once the core has closed its connection. Never a
+/// handle: those are slot indices, from 0.
+const CLOSED: i64 = -1;
+
+/// The core adds the timeout to its monotonic millisecond clock to get a
+/// deadline, so the cap leaves that sum room to never overflow.
+const MAX_TIMEOUT_MS: i64 = i64::MAX / 2;
+
+/// `timeout` in the whole milliseconds `ray_ipc_send_timeout` takes, rounded
+/// up: truncated, a sub-millisecond budget would become 0, which the core reads
+/// as no deadline at all. Zero itself is refused for the same reason.
+fn timeout_ms(timeout: Duration) -> Result<i64> {
+    if timeout.is_zero() {
+        return Err(RayError::binding(
+            "TcpClient: a send timeout must be greater than zero",
+        ));
+    }
+    let ms = timeout.as_nanos().div_ceil(1_000_000);
+    Ok(i64::try_from(ms).map_or(MAX_TIMEOUT_MS, |ms| ms.min(MAX_TIMEOUT_MS)))
 }
 
 /// A synchronous IPC connection to a RayforceDB server.
@@ -50,7 +88,9 @@ unsafe fn ensure_poll() {
 /// assert_exists::<rayforce::TcpClient>();
 /// ```
 pub struct TcpClient {
-    handle: i64,
+    /// [`CLOSED`] once the core has closed the connection under us; see
+    /// [`TcpClient::round_trip`].
+    handle: Cell<i64>,
     _not_send: PhantomData<*mut ()>,
 }
 
@@ -109,7 +149,7 @@ impl TcpClient {
                 )));
             }
             Ok(TcpClient {
-                handle,
+                handle: Cell::new(handle),
                 _not_send: PhantomData,
             })
         }
@@ -121,21 +161,76 @@ impl TcpClient {
         self.send(&Value::string(query))
     }
 
-    /// Send a pre-built message value, returning the response.
+    /// [`execute`](Self::execute), giving up once `timeout` has passed; see
+    /// [`send_timeout`](Self::send_timeout).
+    pub fn execute_timeout(&self, query: &str, timeout: Duration) -> Result<Value> {
+        self.send_timeout(&Value::string(query), timeout)
+    }
+
+    /// Send a pre-built message value, returning the response. Waits as long as
+    /// the server takes.
+    ///
+    /// If the server goes away mid-exchange, this fails and the client is
+    /// closed, as after a [`send_timeout`](Self::send_timeout) expiry.
     pub fn send(&self, msg: &Value) -> Result<Value> {
+        self.round_trip(msg, 0)
+    }
+
+    /// [`send`](Self::send), giving up once `timeout` has passed.
+    ///
+    /// The deadline covers the whole round trip, the request write included.
+    /// On expiry the core sends the server the same cancel as Ctrl-C, closes
+    /// the connection, and this returns an `io` error. The client stays closed:
+    /// every later call on it fails without touching the network, so connect
+    /// again to carry on. Closing is the core's call, and a forced one — a
+    /// response carries no request id, so a late one would be taken as the
+    /// answer to the next request.
+    ///
+    /// `timeout` is rounded up to whole milliseconds. Zero is refused with a
+    /// `binding` error before anything is sent.
+    pub fn send_timeout(&self, msg: &Value, timeout: Duration) -> Result<Value> {
+        self.round_trip(msg, timeout_ms(timeout)?)
+    }
+
+    /// One synchronous exchange; `timeout_ms` 0 waits as long as it takes.
+    fn round_trip(&self, msg: &Value, timeout_ms: i64) -> Result<Value> {
+        let handle = self.live_handle()?;
         unsafe {
-            let r = sys::ray_ipc_send(self.handle, msg.as_ptr());
+            let r = sys::ray_ipc_send_timeout(handle, msg.as_ptr(), timeout_ms);
             if r.is_null() {
                 return Err(RayError::binding("ipc send failed"));
             }
-            Ok(Value::from_owned(materialize(check(r)?)?))
+            let r = check(r);
+            // An error is either the server's answer, with the connection
+            // intact, or the core's own, some of which close it: an expired
+            // deadline, or a peer gone mid-exchange. Only the slot tells them
+            // apart — the text cannot, as a server can answer with any error.
+            // A closed connection's slot goes to the next one opened, so from
+            // here on the handle would send to, and drop would close, a
+            // connection that is not ours.
+            if r.is_err() && !is_live(handle) {
+                self.handle.set(CLOSED);
+            }
+            Ok(Value::from_owned(materialize(r?)?))
+        }
+    }
+
+    /// The handle, unless the core has closed the connection.
+    fn live_handle(&self) -> Result<i64> {
+        match self.handle.get() {
+            CLOSED => Err(RayError::binding(
+                "TcpClient: the connection is closed (a send timed out, or the \
+                 server went away)",
+            )),
+            handle => Ok(handle),
         }
     }
 
     /// Fire-and-forget send (no response).
     pub fn send_async(&self, msg: &Value) -> Result<()> {
+        let handle = self.live_handle()?;
         unsafe {
-            let e = sys::ray_ipc_send_async(self.handle, msg.as_ptr());
+            let e = sys::ray_ipc_send_async(handle, msg.as_ptr());
             if e != sys::ray_err_t_RAY_OK {
                 return Err(RayError::binding(format!(
                     "ipc send_async failed (err {e})"
@@ -156,6 +251,9 @@ impl Drop for TcpClient {
         // Closing a connection releases engine objects held for it, so this
         // has to run while the heap is still mapped. It does: a client cannot
         // leave the scope that owns the heap.
-        unsafe { sys::ray_ipc_close(self.handle) }
+        let handle = self.handle.get();
+        if handle != CLOSED {
+            unsafe { sys::ray_ipc_close(handle) }
+        }
     }
 }
