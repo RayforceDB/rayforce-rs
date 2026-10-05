@@ -3,7 +3,7 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 1.2.0
 
 ### Added
 
@@ -125,6 +125,19 @@ All notable changes to `rayforce` are documented here. This project adheres to
   closes nothing. An error the server answers with leaves the connection
   open. The core's keepalive in v2.11.0 closes dead connections more often,
   and every `send_timeout` expiry closes one, which is why this mattered now.
+
+- **`count()` of a `filter()` in a `select` aggregate counts the rows the
+  predicate keeps.** `col("size").filter(col("price").gt(150.0)).count()`
+  failed with `type: filter: vec and mask must be lists`, on v2.11.0 as on
+  v2.9.1; the query path now lowers it to a sum of `if pred 1 0`.
+
+- **`Value::len` is 0 for an atom**, and `is_empty` is true. It read the
+  object's length field, which an atom shares with its value, so
+  `Value::i64(42).len()` answered 42. Dicts answer their key count.
+
+- **`Fn::new` accepts whitespace inside the opening form**, such as
+  `( fn [x] (* x x))`, which the engine evaluates as a lambda but the source
+  check refused with a `binding` error.
 
 ## 1.1.2
 
