@@ -38,7 +38,7 @@ const CORE_VERSION: &str = "2.11.0";
 const CORE_COMMIT: &str = "dc9b12a";
 
 /// Warning flags for the vendored core build — the core's own `WARNS`
-/// (`Makefile:30`) minus `-Werror`. Consumers compile this with whatever
+/// (`Makefile:35`) minus `-Werror`. Consumers compile this with whatever
 /// toolchain they happen to have, and a new diagnostic from a future compiler
 /// should not be a hard failure inside someone else's dependency tree. The
 /// core's own CI is where `-Werror` belongs.
@@ -163,9 +163,9 @@ fn main() {
         // only header declaring ray_{set,get}_splayed_fn / ray_get_parted_fn,
         // which includes `mem/heap.h`, which includes `core/platform.h`.
         // Defining the keyword away costs nothing. The atomics found there are
-        // the file scope globals `ray_heap_pending_merge` (`mem/heap.h:552`)
-        // and `ray_parallel_flag` (`core/platform.h:186`) and the `foreign`
-        // field of `ray_heap_t` (`mem/heap.h:532`). Neither global is
+        // the file scope globals `ray_heap_pending_merge` (`mem/heap.h:553`)
+        // and `ray_parallel_flag` (`core/platform.h:195`) and the `foreign`
+        // field of `ray_heap_t` (`mem/heap.h:533`). Neither global is
         // allowlisted, `ray_heap_t` is reachable from nothing that is, and
         // `include/rayforce.h` never says `_Atomic` — so no generated type
         // contains one, and no layout bindgen emits can shift. This only
@@ -177,7 +177,7 @@ fn main() {
         // internal surface. Anchored loosely because the staged path lives under
         // OUT_DIR, which may itself contain regex metacharacters.
         .allowlist_file(".*/include/rayforce\\.h")
-        // The public header leaves ray_runtime_s incomplete (`rayforce.h:763`)
+        // The public header leaves ray_runtime_s incomplete (`rayforce.h:771`)
         // and `core/runtime.h:117` completes it. Left alone, bindgen would
         // publish the runtime internals — ray_vm_t and friends, ~67 KB of
         // private layout that would then churn on every core bump. Opaque
@@ -249,8 +249,8 @@ fn out_dir() -> PathBuf {
 /// Mirror the parts of the vendored core that `make lib` needs into
 /// `OUT_DIR/core`, and return that path.
 ///
-/// The core's Makefile builds strictly in-tree — `Makefile:156` names objects
-/// `src/<dir>/<file>.rel.o` and `Makefile:212` drops `librayforce.a` at the
+/// The core's Makefile builds strictly in-tree — `Makefile:168` names objects
+/// `src/<dir>/<file>.rel.o` and `Makefile:238` drops `librayforce.a` at the
 /// root — so running it where the sources sit would write into the crate's own
 /// directory. For a crates.io consumer that is the shared registry cache, and
 /// it is what makes `cargo package`'s verify step fail with "files added".
@@ -314,7 +314,7 @@ fn is_current(from: &Path, to: &Path) -> bool {
 
 /// Delete staged sources that no longer exist upstream. Without this, a file
 /// dropped by a core version bump would linger in OUT_DIR and still be compiled
-/// in via the Makefile's `$(wildcard src/*/*.c)` (`Makefile:147`). Only `.c` /
+/// in via the Makefile's `$(wildcard src/*/*.c)` (`Makefile:159`). Only `.c` /
 /// `.h` are considered, so the objects and archive built here survive.
 fn prune_stale(dst: &Path, staged: &HashSet<PathBuf>) {
     for root in [dst.join("src"), dst.join("include")] {
@@ -345,7 +345,7 @@ fn walk(root: &Path, visit: &mut dyn FnMut(&Path)) {
 }
 
 /// Drop the compiled objects when the flags stamped into them change. The
-/// Makefile tracks header dependencies (`Makefile:39`) but not flag changes,
+/// Makefile tracks header dependencies (`Makefile:44`) but not flag changes,
 /// so editing [`CORE_VERSION`] on its own would otherwise leave the previous
 /// string baked into objects that `make` still considers up to date.
 ///
@@ -443,7 +443,7 @@ fn core_flavour() -> Flavour {
 /// [`invalidate_on_stamp_change`].
 fn build_core_lib(core: &Path, stamp_version: bool) {
     // Cargo budgets build-script parallelism via NUM_JOBS. Without it make runs
-    // serially — minutes of wall clock for ~90 translation units at -O3, which
+    // serially — minutes of wall clock for ~100 translation units at -O3, which
     // matters inside docs.rs's capped build.
     let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "1".to_string());
 
