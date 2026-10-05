@@ -3,7 +3,7 @@
 //! Mirrors the Python suite: spawn the `rayforce` binary in server-only mode on
 //! a free port, connect, and exchange queries. Skips if no binary is available.
 
-use rayforce::{Runtime, TcpClient};
+use rayforce::{ErrorCode, Runtime, TcpClient};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -212,4 +212,152 @@ fn a_client_is_closed_before_its_scope_ends() {
 
     // The close ran against a mapped heap, so the next scope starts cleanly.
     Runtime::scope(|rt| rt.eval("1")?.as_i64()).unwrap();
+}
+
+/// Bind a listener that completes the handshake as a server without
+/// authentication does — `RAY_SERDE_WIRE_VERSION` (3), then no auth required —
+/// and then swallows every request without answering, until the client hangs
+/// up. Returns the port.
+fn spawn_silent_peer() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        if let Ok((mut sock, _)) = listener.accept() {
+            let mut hs = [0u8; 2];
+            if sock.read_exact(&mut hs).is_ok() && sock.write_all(&[3u8, 0x00]).is_ok() {
+                let _ = std::io::copy(&mut sock, &mut std::io::sink());
+            }
+        }
+    });
+    port
+}
+
+#[test]
+fn send_timeout_answers_within_its_budget() {
+    let bin = require_binary!();
+    Runtime::scope(|_rt| {
+        let port = free_port();
+        let _server = spawn_server(&bin, port);
+
+        let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
+        let r = client
+            .execute_timeout("(+ 1 2)", Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(r.as_i64().unwrap(), 3);
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn send_timeout_expires_and_closes_the_client() {
+    Runtime::scope(|_rt| {
+        let port = spawn_silent_peer();
+        let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
+
+        let budget = Duration::from_millis(200);
+        let started = Instant::now();
+        let e = client
+            .execute_timeout("(+ 1 2)", budget)
+            .expect_err("a peer that never answers should time out");
+        let waited = started.elapsed();
+        assert_eq!(e.code, ErrorCode::Io, "{e}");
+        assert!(e.message.contains("timed out"), "{e}");
+        assert!(waited >= budget, "gave up early, after {waited:?}");
+        assert!(waited < Duration::from_secs(5), "overran, {waited:?}");
+
+        // Closed for good: no second exchange, and no wait for one.
+        let started = Instant::now();
+        assert!(client.execute("(+ 1 2)").is_err());
+        assert!(started.elapsed() < budget);
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_zero_send_timeout_is_refused() {
+    // The core reads a 0 ms timeout as no deadline, so passing it through would
+    // turn "give up at once" into "wait forever" — against this peer, a hang.
+    Runtime::scope(|_rt| {
+        let port = spawn_silent_peer();
+        let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
+        let e = client
+            .execute_timeout("(+ 1 2)", Duration::ZERO)
+            .expect_err("a zero timeout should be refused");
+        assert!(e.message.contains("greater than zero"), "{e}");
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_server_error_leaves_the_connection_open() {
+    // A failed send closes the client only when the core closed the connection.
+    // An error the server answers with is not that, whatever it says.
+    let bin = require_binary!();
+    Runtime::scope(|_rt| {
+        let port = free_port();
+        let _server = spawn_server(&bin, port);
+
+        let client = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
+        assert!(client
+            .execute_timeout("(undefined_symbol_xyz)", Duration::from_secs(5))
+            .is_err());
+        assert_eq!(client.execute("(+ 1 2)").unwrap().as_i64().unwrap(), 3);
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_timed_out_client_does_not_reach_the_next_connection() {
+    // The expiry frees the client's slot in the poll, and the next connection
+    // takes it, so the stale client's handle now names that one. Sending on
+    // it would deliver to the wrong server, and dropping it would close a
+    // connection someone else holds.
+    let bin = require_binary!();
+    let port = free_port();
+    let _server = spawn_server(&bin, port);
+
+    Runtime::scope(|_rt| {
+        let silent = spawn_silent_peer();
+        let stale = TcpClient::connect("127.0.0.1", silent, "", "").unwrap();
+        assert!(stale
+            .execute_timeout("(+ 1 2)", Duration::from_millis(100))
+            .is_err());
+
+        let live = TcpClient::connect("127.0.0.1", port, "", "").unwrap();
+        assert!(stale.execute("(+ 1 2)").is_err());
+        drop(stale);
+        assert_eq!(live.execute("(+ 1 2)").unwrap().as_i64().unwrap(), 3);
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_client_whose_server_died_does_not_reach_the_next_connection() {
+    // The same hazard without a deadline: when the peer is gone, the exchange
+    // reads its EOF and the core deregisters the connection, freeing the slot.
+    // (If the write fails first instead, the slot stays registered and still
+    // ours, and the drop below closes it — either way nothing crosses over.)
+    let bin = require_binary!();
+    let second = free_port();
+    let _second = spawn_server(&bin, second);
+
+    Runtime::scope(|_rt| {
+        let first = free_port();
+        let server = spawn_server(&bin, first);
+        let stale = TcpClient::connect("127.0.0.1", first, "", "").unwrap();
+        drop(server);
+        assert!(stale.execute("(+ 1 2)").is_err());
+
+        let live = TcpClient::connect("127.0.0.1", second, "", "").unwrap();
+        assert!(stale.execute("(+ 1 2)").is_err());
+        drop(stale);
+        assert_eq!(live.execute("(+ 1 2)").unwrap().as_i64().unwrap(), 3);
+        Ok(())
+    })
+    .unwrap();
 }

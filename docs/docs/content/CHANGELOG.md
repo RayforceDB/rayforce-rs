@@ -3,14 +3,93 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 1.2.0
+
+### Added
+
+- **`rayforce-sys` exports the four functions core v2.11.0 adds to
+  `include/rayforce.h`:** `ray_git_commit` (the commit the library was built
+  from — `CORE_COMMIT`, for the vendored build), `ray_sys_ram_limit` (the
+  smaller of physical RAM and the process's cgroup memory limit),
+  `ray_sym_bytes` (the global symbol table's string storage) and
+  `ray_ipc_send_timeout` (`ray_ipc_send` with a round-trip deadline, which
+  closes the connection on expiry). Of these, the safe crate wraps only
+  `ray_ipc_send_timeout`, below.
+
+- **`TcpClient::send_timeout` and `TcpClient::execute_timeout`** bound a
+  request with a `Duration` that covers the whole round trip, sending the
+  request included. On expiry the core cancels the query on the server, as
+  Ctrl-C does, closes the connection and answers an `io` error. The client
+  then stays closed: a reply carries no request id, so the connection cannot
+  be reused. The timeout is rounded up to whole milliseconds, and
+  `Duration::ZERO` is refused with a `binding` error, because the core reads
+  0 as no deadline.
 
 ### Changed
 
-- **The vendored `rayforce-q` is `cdbdecb`** (from `1eabaf4`); it has no tag
-  past 2.1.1, and `cdbdecb` is its `master`. `q.h` is unchanged, and only
-  `q.c` is built here, so `rayforce-q`'s server-side changes do not reach this
-  crate.
+- **`rayforce-sys` binds `ray_ipc_tx_info`** from the core's private
+  `src/core/ipc.h`, which is now one of the headers bindgen reads.
+  `TcpClient` uses it to tell whether a failed send closed its connection.
+  That header completes `struct ray_poll`, so `ray_poll` is now generated as
+  an opaque 320-byte blob instead of an incomplete type, the same treatment
+  `ray_runtime_s` gets. Only pointers to it cross the API. With it come
+  `ray_ipc_tx_info_t`, a plain six-field struct, and nothing else of the
+  poll's or its selectors' private layout.
+
+- **The vendored core is v2.11.0 and `rayforce-q` is 2.2.0 (`139e4fd`)** (from
+  v2.9.1 and `1eabaf4`). Apart from the four additions above, the binding layer
+  holds still. The opaque `ray_runtime_s` grows from 40 to 48 bytes by a
+  `ram_limit` field, which nothing here can see: the crate only ever holds the
+  runtime by pointer. The thirteen `INTERNAL_FNS` signatures are unchanged. Of
+  the private headers bindgen reads, `src/lang/internal.h` declares the
+  `.parquet.*` builtins and passes `ray_hsend_fn` an argument array,
+  `src/ops/ops.h` adds a shared-node result memo to `ray_graph_t`, and
+  `src/core/platform.h` adds `ray_os_cgroup_mem_limit` — none of them in
+  `INTERNAL_FNS`, and `ray_graph_t` is not in the public surface. The new
+  sources `src/core/crc32.c`, `src/io/parquet.c` and `src/store/stream.c` are
+  picked up by the Makefile's `src/*/*.c` wildcard and the packaged
+  `vendor/rayforce/src/**` globs, and link against nothing new. The Makefile
+  now also writes a `build/.git-hash` stamp each time it runs: under `OUT_DIR`
+  for the vendored build, inside the checkout for a `RAYFORCE_SRC` one.
+
+  `rayforce-q` 2.2.0 is a release commit on top of `cdbdecb` that touches only
+  its `VERSION` and changelog, so the q client built here is the one the two
+  entries below describe. Upstream has pushed no `2.2.0` tag, so the pin is a
+  commit, as before. Its server-side changes — a deadline on poll-attached sync
+  sends, `.q.*` registered as restricted builtins — do not reach this crate,
+  which builds only `q.c`.
+
+- **The v2.10.0 and v2.11.0 engine deltas that reach this crate outside
+  `eval`.** `TcpClient` connections run TCP keepalive after the handshake, so
+  a server that vanishes without closing (a suspended host, a NAT dropping the
+  flow) is detected in about 60 s, and a pending `TcpClient::execute` or
+  `send` fails with an `io` error instead of waiting forever.
+  `Value::serialize` refuses a value that holds a lazy query-graph handle at
+  any depth. `Table::save_splayed` publishes its replacement atomically, and a
+  failed first write removes the files it produced even when the directory was
+  there before it. In a container, the heap starts spilling to disk at the
+  cgroup's memory limit rather than at the host's physical RAM.
+
+- **What changes through `eval` and the query builders.** The language gains
+  native Parquet reads, scans and imports (`.parquet.read`, `.parquet.scan`,
+  `.parquet.meta`, `.parquet.splayed`, `.parquet.parted` and more) and an
+  optional deadline on `.ipc.send`. A zero of any numeric or temporal type is
+  now falsy; only `i64` and `f64` zeros were, so an `if` over an `i32` zero
+  took the then-branch. An integer `avg` divides the exact 128-bit sum, where
+  the grouped engines divided a wrapped 64-bit one. Comparing an integer
+  column with a computed float scalar, such as `(avg x)`, compared every row
+  with 0. A `select` of a bare aggregate beside scalar expressions over
+  aggregates answers one row instead of one per input row; grouping by a
+  computed key works beside distinct aggregates; SYM and temporal columns keep
+  their type through the eval fallback and a compiled `xbar`; `if` handles
+  vector conditions, mixed branch types and one-element conditions; and
+  `show` prints every column and row of a table. Storing a null into a narrow
+  SYM column no longer clears the cells after it or writes past the column's
+  end. A journal base takes one writer, and `.sys.gc` and `.log.*` reject
+  arguments. The rest is performance: radix grouping with per-worker work
+  stealing, fused top-k that prunes chunks by their zone extrema, parallel
+  splayed CSV loads and hash index builds, and a memo that runs a shared
+  query node once.
 
 - **q minute, second and month values decode by unit.** `QConnection::execute`
   and `q::decode_response` re-tagged them without converting: a minute or
@@ -32,6 +111,33 @@ All notable changes to `rayforce` are documented here. This project adheres to
   the core cuts to seven bytes, so it reads `q: buff` or `q: malf` with an
   empty message. That wording is an upstream defect; do not match on the text
   of these errors.
+
+### Fixed
+
+- **A `TcpClient` whose connection the core has closed no longer reaches the
+  next connection opened.** A handle is a slot in the runtime's poll, and the
+  next connection takes the lowest free one. When a server went away
+  mid-request, the core closed the connection and freed its slot, but the
+  client kept the handle. Its next `send` then went to whichever connection
+  had taken the slot since, and dropping it closed that connection. A failed
+  send now asks the core whether the handle is still live, and if not the
+  client forgets it: later calls fail without touching the network, and drop
+  closes nothing. An error the server answers with leaves the connection
+  open. The core's keepalive in v2.11.0 closes dead connections more often,
+  and every `send_timeout` expiry closes one, which is why this mattered now.
+
+- **`count()` of a `filter()` in a `select` aggregate counts the rows the
+  predicate keeps.** `col("size").filter(col("price").gt(150.0)).count()`
+  failed with `type: filter: vec and mask must be lists`, on v2.11.0 as on
+  v2.9.1; the query path now lowers it to a sum of `if pred 1 0`.
+
+- **`Value::len` is 0 for an atom**, and `is_empty` is true. It read the
+  object's length field, which an atom shares with its value, so
+  `Value::i64(42).len()` answered 42. Dicts answer their key count.
+
+- **`Fn::new` accepts whitespace inside the opening form**, such as
+  `( fn [x] (* x x))`, which the engine evaluates as a lambda but the source
+  check refused with a `binding` error.
 
 ## 1.1.2
 
