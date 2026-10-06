@@ -1,6 +1,6 @@
 //! Phase 3: vectors (zero-copy), lists, dicts.
 
-use rayforce::{eval, Runtime, Value};
+use rayforce::{eval, set_global, Guid, Runtime, Value};
 
 #[test]
 fn vector_zero_copy_slice() {
@@ -298,6 +298,95 @@ fn vector_matches_engine() {
         // A constructed i64 vector formats like the engine's `(til 5)` (0 1 2 3 4).
         let v = Value::vec(&[0i64, 1, 2, 3, 4]);
         assert_eq!(v.format(), eval("(til 5)").unwrap().format());
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Two GUIDs and the null between them, as 16-byte cells.
+const G1: [u8; 16] = [
+    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10,
+];
+const G2: [u8; 16] = [0xA5; 16];
+
+#[test]
+fn guid_vector_construction_and_zero_copy_slice() {
+    Runtime::scope(|_rt| {
+        let data = [G1, [0u8; 16], G2];
+        let v = Value::guid_vec(&data);
+        assert_eq!(v.len(), 3);
+        assert_eq!(v.guid_slice().unwrap(), &data);
+        // the generic path is the same call
+        assert_eq!(Value::vec(&data).as_slice::<[u8; 16]>().unwrap(), &data);
+        // a GUID vector is not an i64 one, nor the other way round
+        assert!(v.as_slice::<i64>().is_err());
+        assert!(Value::vec(&[1i64, 2]).guid_slice().is_err());
+        // the empty vector
+        assert_eq!(Value::guid_vec(&[]).len(), 0);
+        assert_eq!(
+            Value::guid_vec(&[]).guid_slice().unwrap(),
+            &[] as &[[u8; 16]]
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn guid_vector_nulls_and_boxed_access() {
+    Runtime::scope(|_rt| {
+        // The all-zero cell is the null from construction (HAS_NULLS raised
+        // by the core's scan in ray_vec_from_raw); its payload is untouched.
+        let v = Value::guid_vec(&[G1, [0u8; 16], G2]);
+        assert!(!v.is_null_at(0) && v.is_null_at(1) && !v.is_null_at(2));
+        assert!(v.get(1).unwrap().is_null());
+        assert_eq!(v.get(0).unwrap().as_guid().unwrap(), G1);
+        assert_eq!(
+            v.to_vec::<Option<Guid>>().unwrap(),
+            vec![Some(Guid(G1)), None, Some(Guid(G2))]
+        );
+        // A vector with no zero cell carries no null.
+        let clean = Value::guid_vec(&[G1, G2]);
+        assert!(!clean.is_null_at(0) && !clean.is_null_at(1));
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn guid_vector_mutation() {
+    Runtime::scope(|_rt| {
+        let mut v = Value::guid_vec(&[G1]);
+        v.push(G2).unwrap();
+        v.set(0, G2).unwrap();
+        assert_eq!(v.guid_slice().unwrap(), &[G2, G2]);
+        assert!(v.set(2, G1).is_err(), "out of range");
+        assert!(v.push(7i64).is_err(), "an i64 is not a GUID");
+        v.set_null(1, true).unwrap();
+        assert!(v.is_null_at(1));
+        assert_eq!(v.guid_slice().unwrap()[1], [0u8; 16]);
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn guid_vector_matches_engine() {
+    Runtime::scope(|_rt| {
+        // The engine's own GUID vector of the same two values, built from
+        // their text: a vector built from bytes is the same vector.
+        let ours = Value::guid_vec(&[G1, G2]);
+        let theirs = eval(
+            "(concat (enlist (as 'guid \"01234567-89ab-cdef-fedc-ba9876543210\")) \
+                     (enlist (as 'guid \"a5a5a5a5-a5a5-a5a5-a5a5-a5a5a5a5a5a5\")))",
+        )
+        .unwrap();
+        assert_eq!(theirs.guid_slice().unwrap(), &[G1, G2]);
+        assert_eq!(ours.format(), theirs.format());
+        // and it travels through the engine's serialization whole
+        set_global("guid_vec_test", &ours).unwrap();
+        let back = eval("(de (ser guid_vec_test))").unwrap();
+        assert_eq!(back.guid_slice().unwrap(), &[G1, G2]);
         Ok(())
     })
     .unwrap();

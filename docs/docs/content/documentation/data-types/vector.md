@@ -12,10 +12,11 @@ the page to read if you care about performance.
     Runtime::scope(|rt| { /* … */ })?;
     ```
 
-The numeric element types are captured by the `VecElem` trait:
-`u8`, `i16`, `i32`, `i64`, `f32`, `f64`. (Booleans, symbols, strings, and
-temporals have their own constructors — see [Boolean](boolean.md),
-[Symbol](symbol.md), [String](string.md), [Temporal](temporal.md).)
+The fixed-width element types are captured by the `VecElem` trait:
+`u8`, `i16`, `i32`, `i64`, `f32`, `f64`, and `[u8; 16]` for a GUID (see
+[GUID](guid.md#vectors)). (Booleans, symbols, strings, and temporals have their
+own constructors — see [Boolean](boolean.md), [Symbol](symbol.md),
+[String](string.md), [Temporal](temporal.md).)
 
 ## Construction — a single memcpy
 

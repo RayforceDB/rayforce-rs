@@ -31,6 +31,39 @@ The all-zero GUID is the null:
 assert!(Value::guid(&[0u8; 16]).is_atom_null());
 ```
 
+## Vectors { #vectors }
+
+A GUID vector is contiguous 16-byte cells, so `[u8; 16]` is a `VecElem`:
+`Value::guid_vec(&[[u8; 16]])` builds one with a single `memcpy` (it is
+`Value::vec` for that element), and `guid_slice()` borrows the engine buffer as
+`&[[u8; 16]]` without copying — the way to move a column of keys in and out in
+bulk.
+
+```rust
+let a = [0x11u8; 16];
+let b = [0x22u8; 16];
+let v = Value::guid_vec(&[a, [0u8; 16], b]);
+assert_eq!(v.len(), 3);
+assert_eq!(v.guid_slice()?, &[a, [0u8; 16], b]);
+```
+
+The all-zero cell is the null from construction, as any sentinel handed to
+`Value::vec` is (see [Vectors — Nulls](vector.md#nulls)); boxed reads give the
+null singleton, and `Option<Guid>` sees it:
+
+```rust
+assert!(v.is_null_at(1));
+assert_eq!(v.to_vec::<Option<Guid>>()?, vec![Some(Guid(a)), None, Some(Guid(b))]);
+```
+
+`set` and `push` take a `[u8; 16]`:
+
+```rust
+let mut v = Value::guid_vec(&[a]);
+v.push(b)?;
+assert_eq!(v.guid_slice()?, &[a, b]);
+```
+
 ## The `Guid` wrapper
 
 `Guid([u8; 16])` implements `ToValue` and `FromValue`, so a GUID flows through the
