@@ -3,7 +3,9 @@
 //! The performance-critical path: [`Value::as_slice`] exposes a fixed-width
 //! vector's storage as a zero-copy `&[T]`, and [`Value::vec`] builds one from a
 //! `&[T]` in a single `memcpy` (`ray_vec_from_raw`) — both avoiding the
-//! element-by-element FFI loop the Python bindings pay.
+//! element-by-element FFI loop the Python bindings pay. A GUID is a fixed-width
+//! element too: 16 raw bytes, `[u8; 16]` ([`Value::guid_vec`],
+//! [`Value::guid_slice`]).
 //!
 //! Mutators (`set`/`push`) follow the core's copy-on-write move semantics: they
 //! consume the current buffer and install the (possibly relocated) result.
@@ -21,6 +23,9 @@ mod sealed {
 
 /// A fixed-width vector element type, mapping a Rust scalar to a core vector
 /// type tag for zero-copy slicing and bulk construction.
+///
+/// `[u8; 16]` is the GUID element (`RAY_GUID`): the core stores a GUID vector
+/// as contiguous 16-byte cells, so a slice of byte arrays is its exact layout.
 pub trait VecElem: Copy + sealed::Sealed {
     /// Canonical (positive) core vector type id.
     const RAY_TYPE: i8;
@@ -40,6 +45,7 @@ vec_elem!(i32, sys::RAY_I32);
 vec_elem!(i64, sys::RAY_I64);
 vec_elem!(f32, sys::RAY_F32);
 vec_elem!(f64, sys::RAY_F64);
+vec_elem!([u8; 16], sys::RAY_GUID);
 
 impl Value {
     // ---- construction ----
@@ -60,6 +66,14 @@ impl Value {
                 Err(e) => panic!("rayforce: failed to build vector: {e}"),
             }
         }
+    }
+
+    /// Build a GUID vector (`RAY_GUID`) from 16-byte cells: one `memcpy` of
+    /// the whole slice, as [`Value::vec`] does — `Value::vec(data)` is the same
+    /// call. An all-zero cell is the GUID null and raises `HAS_NULLS` at
+    /// construction, so [`Value::is_null_at`] reports it.
+    pub fn guid_vec(data: &[[u8; 16]]) -> Value {
+        Value::vec(data)
     }
 
     /// Build a boolean vector (`RAY_BOOL`) from a slice of `bool`.
@@ -156,6 +170,12 @@ impl Value {
     /// `self`, so it cannot outlive the vector.
     pub fn as_slice<T: VecElem>(&self) -> Result<&[T]> {
         self.raw_slice::<T>(T::RAY_TYPE)
+    }
+
+    /// Zero-copy view of a GUID vector's storage as 16-byte cells —
+    /// `as_slice::<[u8; 16]>()`. A null cell reads as sixteen zero bytes.
+    pub fn guid_slice(&self) -> Result<&[[u8; 16]]> {
+        self.as_slice::<[u8; 16]>()
     }
 
     /// Zero-copy view of a boolean vector's storage (each byte is 0 or 1).
