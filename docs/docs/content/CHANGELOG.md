@@ -25,6 +25,12 @@ All notable changes to `rayforce` are documented here. This project adheres to
   `Duration::ZERO` is refused with a `binding` error, because the core reads
   0 as no deadline.
 
+- **GUID vectors can be built and read in bulk.** `[u8; 16]` is now a
+  `VecElem` mapped to `RAY_GUID`, so `Value::vec` builds a GUID vector with
+  one copy, `as_slice::<[u8; 16]>()` borrows it without copying, and `push` /
+  `set` are type-checked against it. `Value::guid_vec` and `Value::guid_slice`
+  name the two bulk paths; an all-zero cell is the GUID null.
+
 ### Changed
 
 - **`rayforce-sys` binds `ray_ipc_tx_info`** from the core's private
