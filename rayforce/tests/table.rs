@@ -24,6 +24,17 @@ fn construct_and_shape() {
 }
 
 #[test]
+fn rejects_non_vector_columns() {
+    Runtime::scope(|_rt| {
+        let err = Table::new(&["bad"], &[Value::i64(42)]).unwrap_err();
+        assert!(err.message.contains("column 0"));
+        assert!(err.message.contains("not a vector or list"));
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn column_access() {
     Runtime::scope(|_rt| {
         let t = sample_table();
