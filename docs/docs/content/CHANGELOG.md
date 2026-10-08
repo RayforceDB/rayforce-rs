@@ -28,6 +28,16 @@ All notable changes to `rayforce` are documented here. This project adheres to
   is dispatched to whatever `upd` names in the environment. A runtime that
   defines `upd` in Rayfall and serves a port is what `rayforce -q` is, embedded.
 
+- **Guarded IPC.** `Poll::serve_ipc(port)` serves the native IPC from a runtime,
+  built with `budget` and `clock` and started with `start`, which returns an
+  `IpcServer`. A request that runs past the budget, or whose client closes its
+  connection, is cancelled through the core's interrupt; a client's own cancel
+  works as before. `IpcServer::drain` hands back each request's end: the whole
+  text, longer than the 256 characters the core's query log keeps, how long it
+  was evaluated, and whether it was answered, failed or cancelled, and by whom.
+  Nothing on the Q wire goes through the guard, so a writer there is never
+  cancelled. One per process, because the core's hooks are globals.
+
 - **`q::encode`** — the mirror of `q::decode_response`: turn a `Value` into a
   complete Q wire message for a transport you own. Together they let you write
   a Q *publisher*, not just a client.

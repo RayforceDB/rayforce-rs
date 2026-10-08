@@ -23,11 +23,12 @@ rayforce -p 5000
 The server now listens for IPC connections on port `5000`.
 
 !!! info "Serving from Rust"
-    The native listener (`-p`) is not in the bindings yet; run the standalone
-    `rayforce` binary for that. The **Q** listener is: `Poll::serve_q(port)` makes
-    a runtime accept q peers, answer what they send synchronously and dispatch
-    what they push, which is what the `rayforce -q` binary does. See
-    [Serving the Q wire](#serving-the-q-wire) below.
+    `Poll::serve_ipc(port)` serves this wire from a runtime, with a budget on
+    each request; see [Serving IPC](#serving-ipc) below. The **Q** listener is
+    there too: `Poll::serve_q(port)` makes a runtime accept q peers, answer what
+    they send synchronously and dispatch what they push, which is what the
+    `rayforce -q` binary does. See [Serving the Q wire](#serving-the-q-wire)
+    below.
 
 ## :material-lan-connect: Connecting
 
@@ -286,3 +287,47 @@ Runtime::scope(|rt| {
 The `QListener` is a handle, not an owner: the socket belongs to the poll and
 closes with the runtime, and dropping the handle does not stop serving. Port 0
 is refused, so pick the port yourself.
+
+## :material-shield-check: Serving IPC
+
+`Poll::serve_ipc(port)` serves the native IPC, the wire `rayforce -p` serves and
+`TcpClient` speaks, from a runtime, with every request guarded. The server
+evaluates one request at a time, so a request that runs for minutes holds every
+other client for minutes. The guard cancels a request that runs past the budget,
+or whose client has closed its connection. A client's own cancel works as
+before.
+
+```rust
+use std::time::Duration;
+use rayforce::{Poll, Runtime};
+
+Runtime::scope(|_rt| {
+    let poll = Poll::install()?;
+    let ipc = poll.serve_ipc(5011).budget(Duration::from_secs(10)).start()?;
+    loop {
+        poll.run_for(100)?;   // requests are served in here
+        for end in ipc.drain() {
+            println!("{:?} in {:?}: {}", end.ended, end.duration, end.text);
+        }
+    }
+})?;
+# Ok::<(), rayforce::RayError>(())
+```
+
+`drain` hands back each request that ended since the last call: its whole text,
+where the core's own query log keeps the first 256 characters; how long it was
+evaluated; and whether it was `Answered`, `Failed` with the core's error code, or
+`Cancelled` by the budget, a hangup or its client.
+
+- Nothing on the Q wire goes through the guard, so a writer there is never
+  cancelled. It still waits: for the request being evaluated, and for any other
+  queued ahead of it, because the core takes what is ready on the two wires in
+  an order of its own. Each wait is at most a budget.
+- The guard works through the core's `.ipc.on.sync` and `.ipc.on.async` hooks,
+  which are one per process, so a second `serve_ipc` is refused. They are
+  globals a client can redefine: serve clients in restricted mode to hold the
+  budget against them.
+- As with the Q listener, the socket closes only with the runtime. Dropping the
+  `IpcServer` stops the guard, not the serving.
+- A zero budget, which would cancel every request, and port 0 are refused.
+  `clock` sets the clock the budget is measured on, for a test that moves time.

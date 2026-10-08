@@ -93,6 +93,16 @@ impl RayError {
     }
 }
 
+/// The category of a core `RAY_ERROR` object, which stays the caller's: unlike
+/// [`RayError::from_obj`] this frees nothing, for a caller that hands the object
+/// on, as the IPC guard hands a request's error back to its client.
+///
+/// # Safety
+/// `err` must be a valid `RAY_ERROR` pointer (see [`raw::is_err`]).
+pub(crate) unsafe fn code_of(err: Raw) -> ErrorCode {
+    ErrorCode::from_err_t(sys::ray_err_from_obj(err))
+}
+
 impl fmt::Display for RayError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = if self.code_str.is_empty() {
