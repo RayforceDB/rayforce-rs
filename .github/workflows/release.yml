@@ -22,9 +22,7 @@ jobs:
     steps:
       # The C sources are submodules under rayforce-sys/vendor/, so what is
       # built and published here is exactly what a crates.io consumer gets —
-      # no separate checkout to keep in step with build.rs. The submodule URLs
-      # are SSH; actions/checkout rewrites them to https with the job token
-      # (see ci.yml).
+      # no separate checkout to keep in step with build.rs.
       - name: Checkout bindings
         uses: actions/checkout@v4
         with:
@@ -65,7 +63,7 @@ jobs:
       - name: Check the packaged crate carries the vendored core
         run: |
           cargo package -p rayforce-sys --list > /tmp/pkg.txt
-          for f in vendor/rayforce/include/rayforce.h vendor/rayforce/Makefile vendor/rayforce-q/q.c; do
+          for f in vendor/rayforce/include/rayforce.h vendor/rayforce/Makefile vendor/rayforce-q/q.c vendor/rayforce-q/q_server.c; do
             grep -qx "$f" /tmp/pkg.txt || { echo "::error::$f missing from the packaged crate"; exit 1; }
           done
           if grep -qE '\.(o|d)$' /tmp/pkg.txt; then
