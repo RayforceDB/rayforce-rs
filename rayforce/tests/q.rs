@@ -138,6 +138,33 @@ fn decode_response_rejects_big_endian_messages() {
 }
 
 #[test]
+fn encode_round_trips_through_decode() {
+    Runtime::scope(|_rt| {
+        // `q::encode` produces a complete message; `q::decode_response` consumes
+        // one. Together they are the two halves of a transport you own yourself.
+        let v = rayforce::Value::vec(&[1i64, 2, 3]);
+        let mut frame = rayforce::q::encode(&v).unwrap();
+
+        // Header: little-endian, SYNC (the encoder always stamps SYNC), not
+        // compressed, and a size covering the whole message.
+        assert_eq!(frame[0], 1, "little-endian flag");
+        assert_eq!(frame[1], 1, "encoder stamps SYNC");
+        assert_eq!(frame[2], 0, "uncompressed");
+        assert_eq!(
+            u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]) as usize,
+            frame.len()
+        );
+
+        // `decode_response` accepts only a RESPONSE, so retype byte 1 first.
+        frame[1] = 2;
+        let back = rayforce::q::decode_response(&frame).unwrap();
+        assert_eq!(back.as_slice::<i64>().unwrap(), &[1, 2, 3]);
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn decode_response_rejects_non_response_messages() {
     Runtime::scope(|_rt| {
         let mut response = msg(&long_vec(&[1, 2, 3]));

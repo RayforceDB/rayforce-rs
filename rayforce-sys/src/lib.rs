@@ -51,6 +51,61 @@ extern "C" {
         err: *mut ::std::os::raw::c_char,
         errlen: usize,
     ) -> *mut ray_t;
+    /// Serialize `msg` into a complete Q wire request (8-byte header + body).
+    /// The buffer is malloc'd by C and must be released with `libc::free`.
+    /// `q_encode` always stamps the header's message-type byte as SYNC; a
+    /// publisher retypes `req[1]` in place to send ASYNC or RESPONSE.
+    /// Touches the symbol table: engine thread only.
+    pub fn q_encode(
+        msg: *mut ray_t,
+        req: *mut *mut u8,
+        req_len: *mut i64,
+        err: *mut ::std::os::raw::c_char,
+        errlen: usize,
+    ) -> ::std::os::raw::c_int;
+    /// Send a pre-encoded request on `fd` and read the raw response *body*.
+    /// Pure socket I/O — the half of `q_send` that a runtime with a global lock
+    /// can perform with that lock released.
+    pub fn q_exchange(
+        fd: ::std::os::raw::c_int,
+        req: *const u8,
+        req_len: i64,
+        resp: *mut *mut u8,
+        resp_len: *mut i64,
+        compressed: *mut ::std::os::raw::c_int,
+        err: *mut ::std::os::raw::c_char,
+        errlen: usize,
+    ) -> ::std::os::raw::c_int;
+}
+
+// Q wire-format *server* from `rayforce-q` (q_server.c/q_server.h), available
+// since rayforce-q 2.1.0. Where the client above lets you call a Q server, this
+// lets you receive from one.
+//
+// `q_send` is request/response over a blocking socket, so a frame the peer
+// pushes unsolicited would be read as the answer to the next call — which makes
+// a subscription impossible with the client alone. Attaching the fd to a
+// rayforce poll fixes that: the event loop owns the reads and routes each frame
+// by message type, waking a parked `q_conn_send` on a RESPONSE and dispatching
+// anything else to the function the publisher named.
+extern "C" {
+    /// Register a Q-protocol *listener* on `poll`, bound to TCP `port`.
+    /// Returns the poll selector id (>= 0), or -1 on failure.
+    pub fn q_serve(poll: *mut ray_poll_t, port: ::std::os::raw::c_int) -> i64;
+    /// Put an already-connected, already-handshaken `q_connect` fd under
+    /// `poll`'s rx machine. Returns a poll selector id (>= 0) — the handle for
+    /// the two calls below — or -1. **The fd is owned by the poll from here on;
+    /// do not `q_close` it.**
+    pub fn q_conn_attach(poll: *mut ray_poll_t, fd: ::std::os::raw::c_int) -> i64;
+    /// Sync round-trip on an attached connection: write a SYNC frame, then pump
+    /// this connection until its RESPONSE arrives — dispatching, not swallowing,
+    /// any frame that arrives in between. So a bound handler can fire before
+    /// this returns. Returns a freshly-owned object, possibly a `RAY_ERROR`.
+    /// Refuses a nested call from inside a handler.
+    pub fn q_conn_send(poll: *mut ray_poll_t, id: i64, msg: *mut ray_t) -> *mut ray_t;
+    /// Close an attached connection and release its state. Illegal once the rx
+    /// machine has already deregistered the selector — check `ray_poll_get`.
+    pub fn q_conn_close(poll: *mut ray_poll_t, id: i64);
 }
 
 /// `q_connect` failure codes (mirrors `q.h`).
@@ -82,3 +137,18 @@ pub const RAY_IPC_ERR_WIRE_VERSION: i64 = -4;
 pub const RAY_IPC_ERR_TIMEOUT: i64 = -5;
 /// Some other OS error; the core leaves `errno` holding it.
 pub const RAY_IPC_ERR_OS: i64 = -6;
+
+/// Function attribute flags for `ray_fn_unary` / `ray_fn_vary`, from the core's
+/// `src/lang/eval.h:33-40`. They are `#define`s in a header `wrapper.h` does
+/// not include, so bindgen never sees them.
+///
+/// `RAY_FN_NONE` is what a plain callback wants: no auto-mapping over vectors,
+/// no aggregation, args evaluated normally.
+pub const RAY_FN_NONE: u8 = 0x00;
+pub const RAY_FN_LEFT_ATOMIC: u8 = 0x01;
+pub const RAY_FN_RIGHT_ATOMIC: u8 = 0x02;
+pub const RAY_FN_ATOMIC: u8 = 0x04;
+pub const RAY_FN_AGGR: u8 = 0x08;
+pub const RAY_FN_SPECIAL_FORM: u8 = 0x10;
+pub const RAY_FN_RESTRICTED: u8 = 0x20;
+pub const RAY_FN_LAZY_AWARE: u8 = 0x80;

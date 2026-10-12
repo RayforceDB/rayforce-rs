@@ -3,6 +3,57 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- **Q subscriptions.** A `QConnection` can now be handed to the event loop with
+  [`attach`](documentation/ipc.md), turning it into a `Subscription` that
+  receives frames the peer pushes unsolicited — a tickerplant or a dict-form
+  publisher. The plain client could not do this: it is blocking
+  request/response, so a pushed frame would be read as the answer to the next
+  call.
+
+  New `Poll` (the runtime's event loop), `Subscription`
+  (`send` / `execute` / `is_alive`), and `env::bind_vary` / `env::bind_unary`
+  for binding a Rust handler under the name a publisher calls. A handler is a
+  type implementing `env::VaryFn` / `env::UnaryFn`; the generated trampoline
+  borrows the arguments and catches panics, so the whole surface is safe.
+  `Poll` and `Subscription` are `!Send` like every other engine-backed handle,
+  so `Runtime::scope` refuses to let them out.
+
+- **Q listener.** `Poll::serve_q(port)` registers the `rayforce-q` listener on
+  the runtime's event loop, returning a `QListener`. Peers are served while the
+  loop runs: a sync string is evaluated and answered, an async `(upd; payload)`
+  is dispatched to whatever `upd` names in the environment. A runtime that
+  defines `upd` in Rayfall and serves a port is what `rayforce -q` is, embedded.
+
+- **Guarded IPC.** `Poll::serve_ipc(port)` serves the native IPC from a runtime,
+  built with `budget` and `clock` and started with `start`, which returns an
+  `IpcServer`. A request that runs past the budget, or whose client closes its
+  connection, is cancelled through the core's interrupt; a client's own cancel
+  works as before. `IpcServer::drain` hands back each request's end: the whole
+  text, longer than the 256 characters the core's query log keeps, how long it
+  was evaluated, and whether it was answered, failed or cancelled, and by whom.
+  Nothing on the Q wire goes through the guard, so a writer there is never
+  cancelled. One per process, because the core's hooks are globals.
+
+- **`q::encode`** — the mirror of `q::decode_response`: turn a `Value` into a
+  complete Q wire message for a transport you own. Together they let you write
+  a Q *publisher*, not just a client.
+
+- **`Value::attrs`** — the attribute byte. Rarely needed, but it is the only
+  way to tell a keyed table (a 2-element list carrying `RAY_ATTR_DICT`) from a
+  plain list, which no type code distinguishes.
+
+### Changed
+
+- **`rayforce-sys` compiles `rayforce-q`'s `q_server.c` alongside `q.c`.**
+  rayforce-q 2.1.0 is a floor rather than a preference — the `q_conn_*` API
+  does not exist in 2.0.0. The server-side changes 1.2.0 lists as not reaching
+  this crate — the deadline on poll-attached sync sends, `.q.*` registered as
+  restricted builtins — now do.
+
 ## 1.2.0
 
 ### Added
@@ -400,17 +451,6 @@ All notable changes to `rayforce` are documented here. This project adheres to
   relative paths, datalog integer arithmetic checked to `0Nl` on overflow and
   division by zero, journal archives preserved when rolls share a timestamp,
   and a multicast framing failure that no longer drops subscribers.
-
-- **The submodules are addressed over SSH.** `.gitmodules` now points at
-  `git@github.com:RayforceDB/rayforce.git` and `rayforce-q.git`. An existing
-  clone picks the change up with `git submodule sync --recursive`; CI needs
-  nothing, since `actions/checkout` rewrites `git@github.com:` to https with the
-  job token. Without a GitHub SSH key, set
-  `git config --global url."https://github.com/".insteadOf "git@github.com:"`
-  before initializing the submodules — and, for a `git = "https://…"` Cargo
-  dependency, `net.git-fetch-with-cli = true` in `~/.cargo/config.toml` so Cargo
-  fetches through git and honours the rewrite. crates.io users are unaffected:
-  the C sources ship inside the crate.
 
 - **A core-flavour switch rebuilds a `RAYFORCE_SRC` checkout from scratch.**
   Release and debug objects share every filename and `make` tracks headers but
