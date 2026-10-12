@@ -3,7 +3,7 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 1.3.0
 
 ### Added
 
@@ -47,6 +47,17 @@ All notable changes to `rayforce` are documented here. This project adheres to
   plain list, which no type code distinguishes.
 
 ### Changed
+
+- **`rayforce-q` is 2.3.0 (`f4378a4`).** The vendored core stays at v2.11.0
+  (`dc9b12a`). 2.3.0 is the hardening series: bounded nesting and
+  overflow-checked sizes on both codec walks, server responses queued through
+  the poll's writable events so a slow reader no longer parks the loop, large
+  frames received in 64 KiB chunks, the blocking client shutting its socket
+  down after a framing failure so a stale response cannot answer the next
+  request, and header-only or malformed frames closing the connection. Two
+  behaviour changes reach this crate: Q timespans now decode to an error
+  instead of a wrong timestamp, and a keyed table round-trips as a Q dict of
+  two tables.
 
 - **`rayforce-sys` compiles `rayforce-q`'s `q_server.c` alongside `q.c`.**
   rayforce-q 2.1.0 is a floor rather than a preference — the `q_conn_*` API
