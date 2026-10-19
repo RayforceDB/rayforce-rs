@@ -24,7 +24,7 @@ use std::process::Command;
 ///
 /// Must match the tag `vendor/rayforce` is pinned to. CI asserts the two agree;
 /// see the "Check vendored core pin" step in `.github/workflows/ci.yml`.
-const CORE_VERSION: &str = "2.11.0";
+const CORE_VERSION: &str = "2.11.5";
 
 /// Commit the `vendor/rayforce` submodule is pinned to, stamped alongside
 /// [`CORE_VERSION`]. Also checked by CI's "Check vendored core pin" step.
@@ -35,7 +35,7 @@ const CORE_VERSION: &str = "2.11.0";
 /// under OUT_DIR, an unset value does not fall back to "unknown" — it silently
 /// reports the HEAD of whatever unrelated repository happens to enclose the
 /// build directory.
-const CORE_COMMIT: &str = "dc9b12a";
+const CORE_COMMIT: &str = "5d5f47c";
 
 /// Warning flags for the vendored core build — the core's own `WARNS`
 /// (`Makefile:35`) minus `-Werror`. Consumers compile this with whatever
@@ -195,32 +195,40 @@ fn main() {
         .clang_arg(format!("-I{}", core.join("src").display()))
         // bindgen 0.70 cannot resolve the type of a C11 `_Atomic` variable and
         // aborts the whole parse with "Couldn't resolve constant type". The
-        // parse reaches the core's atomics only through `lang/internal.h`, the
-        // only header declaring ray_{set,get}_splayed_fn / ray_get_parted_fn,
-        // which includes `mem/heap.h`, which includes `core/platform.h`.
-        // Defining the keyword away costs nothing. The atomics found there are
-        // the file scope globals `ray_heap_pending_merge` (`mem/heap.h:553`)
-        // and `ray_parallel_flag` (`core/platform.h:195`) and the `foreign`
-        // field of `ray_heap_t` (`mem/heap.h:533`). Neither global is
-        // allowlisted, `ray_heap_t` is reachable from nothing that is, and
-        // `include/rayforce.h` never says `_Atomic` — so no generated type
-        // contains one, and no layout bindgen emits can shift. This only
-        // affects bindgen's parse; the core is compiled by its own Makefile.
+        // core spells atomics two ways, the specifier `_Atomic(T)` and the
+        // qualifier `_Atomic T`, and no single macro can match both: a
+        // function-like `_Atomic(T)` is not expanded where no parenthesis
+        // follows. So `_Atomic` is defined as `__volatile`, and `__volatile`
+        // as a function-like macro. A specifier rescans to `__volatile(T)` and
+        // then to plain `T`; a qualifier, with no parenthesis to invoke it,
+        // stays `__volatile T`, an ordinary volatile that bindgen parses. No
+        // header in the parse writes `__volatile(`; inline asm, the one place
+        // a volatile keyword meets a parenthesis, conventionally spells it
+        // `__volatile__` or `volatile`, and neither is touched.
         //
-        // `core/ipc.h` brings a fourth through `core/poll.h`: the `code` field
-        // of `struct ray_poll` (`core/poll.h:116`), spelled as the qualifier
-        // `_Atomic int64_t`, which this function-like define does not touch.
-        // bindgen parses that form without aborting but types the field `u64`;
-        // it stays out of the bindings only because `ray_poll` is opaque below.
-        .clang_arg("-D_Atomic(T)=T")
+        // The specifiers come in through `lang/internal.h`, the only header
+        // declaring ray_{set,get}_splayed_fn / ray_get_parted_fn, which
+        // includes `mem/heap.h`, which includes `core/platform.h`: the file
+        // scope globals `ray_heap_pending_merge` (`mem/heap.h:609`) and
+        // `ray_parallel_flag` (`core/platform.h:231`) and the `foreign` field
+        // of `ray_heap_t` (`mem/heap.h:587`). The qualifiers are the `code`
+        // field of `struct ray_poll` (`core/poll.h:116`), which `core/ipc.h`
+        // brings in, and the global `g_global_epoch` (`lang/env.h:172`). No
+        // global is allowlisted, `ray_heap_t` is reachable from nothing that
+        // is, `ray_poll` is opaque below, and `include/rayforce.h` never says
+        // `_Atomic` — so no generated type contains one, and no layout bindgen
+        // emits can shift. This only affects bindgen's parse; the core is
+        // compiled by its own Makefile.
+        .clang_arg("-D_Atomic=__volatile")
+        .clang_arg("-D__volatile(T)=T")
         // Everything the public header declares. This bound is load-bearing:
-        // the private headers added below declare ~660 functions and ~100 RAY_*
+        // the private headers added below declare ~700 functions and ~100 RAY_*
         // constants between them, so a blanket `ray_.*` would drag in the whole
         // internal surface. Anchored loosely because the staged path lives under
         // OUT_DIR, which may itself contain regex metacharacters.
         .allowlist_file(".*/include/rayforce\\.h")
         // The public header leaves ray_runtime_s incomplete (`rayforce.h:771`)
-        // and `core/runtime.h:117` completes it. Left alone, bindgen would
+        // and `core/runtime.h:156` completes it. Left alone, bindgen would
         // publish the runtime internals — ray_vm_t and friends, ~67 KB of
         // private layout that would then churn on every core bump. Opaque
         // keeps it a handle, which is all the public API ever passes around.
