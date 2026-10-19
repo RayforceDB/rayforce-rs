@@ -3,6 +3,85 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Changed
+
+- **The vendored core is v2.11.5 (`5d5f47c`) and `rayforce-q` is 2.4.0
+  (`df8ced9`)**, from v2.11.0 and 2.3.0. `include/rayforce.h` is unchanged, and
+  the `bindings.rs` bindgen generates changes only in the opaque
+  `ray_runtime_s`, 48 to 560 bytes for the limiting cgroup's directory; at that
+  size bindgen no longer derives `Copy` / `Clone` for it, and the crate only
+  ever holds it by pointer. The nineteen `INTERNAL_FNS` signatures are
+  unchanged. Of the private headers bindgen reads, `src/lang/eval.h`,
+  `src/lang/env.h`, `src/core/runtime.h` and `src/ops/ops.h` grow for compiled
+  closures and for the row provenance of helpers called from a query, and
+  `src/lang/internal.h` gains `ray_null_class`; none is in `INTERNAL_FNS`. The
+  new sources `src/ops/select_merge.c`, `src/ops/symcmp.c`,
+  `src/table/symgrp.c` and `src/table/symimp.c` are picked up by the Makefile's
+  `src/*/*.c` wildcard and the packaged globs, and link against nothing new;
+  the Makefile changes only its fuzz targets. rayforce-q has pushed no 2.4.0
+  tag, so it is pinned by its "Release 2.4.0" commit. `q.c` is unchanged; 2.4.0
+  adds `(.q.handle)`, the connection whose pushed frame a handler is running
+  for, which `q_server.c` now records around each dispatch. The builtin is
+  registered by rayforce-q's `embed/rayforce_q.c`, which this crate does not
+  compile, and `q_conn_current` is not declared in `rayforce-sys`, so it does
+  not reach this crate yet.
+
+- **`rayforce-sys` erases both spellings of `_Atomic` for bindgen's parse.**
+  v2.11.5's `src/lang/env.h` declares `extern _Atomic uint64_t g_global_epoch`,
+  an atomic spelled as a qualifier at file scope, which bindgen 0.70 cannot
+  type and aborts on ("Couldn't resolve constant type"), and which the
+  function-like `-D_Atomic(T)=T` define could not reach. `_Atomic` is now
+  defined as `__volatile` and `__volatile` as a function-like macro, so
+  `_Atomic(T)` reads as `T` and `_Atomic T` as a volatile `T`. `rayforce-sys`
+  1.3.0 cannot generate its bindings against a v2.11.5 core given through
+  `RAYFORCE_SRC`. Only bindgen's parse is affected: no allowlisted item holds
+  an atomic, and the core is compiled by its own Makefile.
+
+- **The v2.11.5 engine deltas that reach this crate outside `eval`.**
+  `Table::insert_row` appends an empty string to a string column, which raised
+  `vec_append: str vectors use ray_str_vec_append`. `Table::upsert_columns` on
+  a table with mapped columns, such as one from `Table::load_splayed`, checks
+  each value column's length against the key's and fails with `length`, where
+  a shorter column was read past its end. `Table::save_splayed` keeps one copy
+  of a replaced table on disk instead of about three: only the selected
+  generation is kept, and the first publish removes the root column files of
+  the layout it retires. `Table::load_splayed` whose generation is removed
+  while it opens retries for as long as the table keeps changing (at least
+  eight times, for up to 60 seconds) and stops on an interrupt, where it
+  failed with an I/O error after eight attempts; `Table::load_parted` reuses
+  unchanged partitions across mounts. `Value::deserialize` refuses a lambda
+  whose closure is not a dict of symbol keys to a list of values with `type`.
+  Every block the core allocates outside its pools, the string arenas and hash
+  tables of the symbol table and column domains included, now counts toward
+  the spill watermark, and the default watermark sits a quarter below the RAM
+  the process may use (at least 3 GiB below, at most half of it) rather than
+  at all of it. Spill files are opened close-on-exec, so a `.sys.exec` child
+  no longer holds them.
+
+- **What changes through `eval` and the query builders.** Closures compile to
+  bytecode, their captures bound as locals, and `return` ends a lambda on its
+  first, interpreted call as it does once compiled. A lambda called from a
+  query reads the query's source columns, and a `by:` key the planner cannot
+  lower is evaluated once over the table and grouped on as a computed key.
+  `in` compares a string element of a collection as one value (it answered
+  per character), works over string columns inside a query (it raised `nyi`)
+  and answers an empty boolean vector for an empty left operand, so
+  `(where (in keys held))` no longer raises when `keys` is empty. Nulls of
+  different types are different values in `in`, `find`, `distinct` and join
+  keys, while numeric nulls still meet across widths, as `1` meets `1i`;
+  `not-in` excludes null symbols. A dict row given to `upsert` may leave out
+  non-key columns, and a row that leaves out a list column gets the null
+  object, where reading the cell aborted. Ordered symbol columns compare by
+  their text; a sort or take over a grouping with no outputs works on a
+  computed key; a multi-key `select` takes a distinct count beside an
+  expression aggregate; nested selects are composed before planning. Parquet
+  imports go column by column when memory is short, hash indexes store 32-bit
+  row ids and slots below 2^32 rows, scans read ahead on cold storage, and
+  `sys-mapped` counts file mappings in whole pages, where it drifted below
+  zero.
+
 ## 1.3.0
 
 ### Added
