@@ -165,6 +165,17 @@ fn main() {
          It ships with rayforce-q >= 2.1.0; older checkouts have only q.c.",
         q_server_c.display()
     );
+    // `q_decode_cols` (the projected decode behind `q::decode_response_cols`)
+    // arrived in rayforce-q 2.5.0. Against an older checkout the build would
+    // only fail at link time, on an undefined symbol, so say so here.
+    let q_h = q_src.join("q.h");
+    assert!(
+        fs::read_to_string(&q_h).is_ok_and(|h| h.contains("q_decode_cols")),
+        "rayforce-q at {} does not declare q_decode_cols in q.h.\n\
+         It ships with rayforce-q >= 2.5.0; point RAYFORCE_Q_SRC at a newer \
+         checkout, or unset it to build the vendored one.",
+        q_src.display()
+    );
     cc::Build::new()
         .file(&q_c)
         .file(&q_server_c)

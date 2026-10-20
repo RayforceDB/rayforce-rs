@@ -138,7 +138,8 @@ cargo test --workspace
 ```
 
 `rayforce-sys/vendor/rayforce-q` works the same way, minus the constants — nothing is
-stamped from it.
+stamped from it. The build script needs rayforce-q 2.5.0 or later, the first with
+`q_decode_cols`, and names the version when a checkout is older.
 
 To build against a core you are changing instead, point the build script at your own
 checkout. These take precedence over the vendored copies:

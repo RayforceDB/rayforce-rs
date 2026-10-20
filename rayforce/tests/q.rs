@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
 
-use rayforce::{q, q::QConnection, Runtime, Table};
+use rayforce::{q, q::QConnection, Runtime, Table, Value};
 
 // --- Q wire-format builders (server side) ---------------------------------
 
@@ -30,6 +30,39 @@ fn sym_vec(syms: &[&str]) -> Vec<u8> {
     b
 }
 
+/// Float (f64) vector: type 9, attrs, int32 len, data.
+fn float_vec(vals: &[f64]) -> Vec<u8> {
+    let mut b = vec![9u8, 0u8];
+    b.extend_from_slice(&(vals.len() as i32).to_le_bytes());
+    for v in vals {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b
+}
+
+/// Timespan vector: type 16, nanoseconds as i64. `q_decode` has no branch for
+/// it, so a message carrying one decodes only when the column is skipped.
+fn timespan_vec(vals: &[i64]) -> Vec<u8> {
+    let mut b = vec![16u8, 0u8];
+    b.extend_from_slice(&(vals.len() as i32).to_le_bytes());
+    for v in vals {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b
+}
+
+/// String column: a general list (type 0) of char vectors (type 10).
+fn string_col(vals: &[&str]) -> Vec<u8> {
+    let mut b = vec![0u8, 0u8];
+    b.extend_from_slice(&(vals.len() as i32).to_le_bytes());
+    for v in vals {
+        b.extend_from_slice(&[10u8, 0u8]);
+        b.extend_from_slice(&(v.len() as i32).to_le_bytes());
+        b.extend_from_slice(v.as_bytes());
+    }
+    b
+}
+
 /// Table: type 98, attrs(0), dict-marker(99), KS-keys, general-list of columns.
 fn table(names: &[&str], cols: &[Vec<u8>]) -> Vec<u8> {
     let mut b = vec![98u8, 0u8, 99u8];
@@ -40,6 +73,14 @@ fn table(names: &[&str], cols: &[Vec<u8>]) -> Vec<u8> {
     for c in cols {
         b.extend_from_slice(c);
     }
+    b
+}
+
+/// Keyed table: a dict (type 99) from a key table to a value table.
+fn keyed(key: Vec<u8>, val: Vec<u8>) -> Vec<u8> {
+    let mut b = vec![99u8];
+    b.extend(key);
+    b.extend(val);
     b
 }
 
@@ -171,6 +212,195 @@ fn decode_response_rejects_non_response_messages() {
         response[1] = 1; // sync request, not response
 
         let err = q::decode_response(&response).unwrap_err();
+        assert!(
+            err.to_string().contains("expected response message type 2"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+// --- projected decode (q::decode_response_cols) ----------------------------
+
+/// A five-column table of every column shape the projected decode treats
+/// differently: fixed width, symbol, string, a timespan `q_decode` refuses, and
+/// a float.
+fn wide_table() -> Vec<u8> {
+    table(
+        &["seq", "sym", "note", "span", "px"],
+        &[
+            long_vec(&[1, 2, 3]),
+            sym_vec(&["AAPL", "MSFT", "GOOG"]),
+            string_col(&["a", "bc", ""]),
+            timespan_vec(&[1, 2, 3]),
+            float_vec(&[1.5, 2.5, 3.5]),
+        ],
+    )
+}
+
+/// The wire form of a column, to compare two decodes by.
+fn wire(v: &Value) -> Vec<u8> {
+    v.serialize().unwrap()
+}
+
+#[test]
+fn decode_response_cols_keeps_the_named_columns_in_order() {
+    Runtime::scope(|_rt| {
+        let full = msg(&wide_table());
+        // The timespan column is why the whole message cannot be decoded.
+        assert!(q::decode_response(&full).is_err());
+
+        let v = q::decode_response_cols(&full, &["px", "note", "seq", "sym"]).unwrap();
+        let t = Table::from_value(v).unwrap();
+        assert_eq!(t.shape(), (3, 4));
+        assert_eq!(t.column_names(), ["px", "note", "seq", "sym"]);
+        assert_eq!(
+            t.column("px").unwrap().as_slice::<f64>().unwrap(),
+            &[1.5, 2.5, 3.5]
+        );
+        assert_eq!(
+            t.column("seq").unwrap().as_slice::<i64>().unwrap(),
+            &[1, 2, 3]
+        );
+        let sym = t.column("sym").unwrap();
+        assert_eq!(sym.get(1).unwrap().as_sym().unwrap(), "MSFT");
+        let note = t.column("note").unwrap();
+        assert_eq!(note.get(0).unwrap().as_string().unwrap(), "a");
+        assert_eq!(note.get(1).unwrap().as_string().unwrap(), "bc");
+        assert_eq!(note.get(2).unwrap().as_string().unwrap(), "");
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn decode_response_cols_equals_decoding_the_projection() {
+    Runtime::scope(|_rt| {
+        // What q would have sent for `sym`note`px#t`, decoded whole.
+        let projection = msg(&table(
+            &["sym", "note", "px"],
+            &[
+                sym_vec(&["AAPL", "MSFT", "GOOG"]),
+                string_col(&["a", "bc", ""]),
+                float_vec(&[1.5, 2.5, 3.5]),
+            ],
+        ));
+        let want = Table::from_value(q::decode_response(&projection).unwrap()).unwrap();
+
+        let names = vec!["sym".to_string(), "note".to_string(), "px".to_string()];
+        let got = q::decode_response_cols(&msg(&wide_table()), &names).unwrap();
+        let got = Table::from_value(got).unwrap();
+
+        assert_eq!(got.column_names(), want.column_names());
+        for (g, w) in got.columns().unwrap().iter().zip(want.columns().unwrap()) {
+            assert_eq!(wire(g), wire(&w));
+        }
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn decode_response_cols_names_a_column_the_table_lacks() {
+    Runtime::scope(|_rt| {
+        let err = q::decode_response_cols(&msg(&wide_table()), &["seq", "nope"]).unwrap_err();
+        assert!(
+            err.to_string().contains("`nope`"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn decode_response_cols_refuses_bad_names() {
+    Runtime::scope(|_rt| {
+        let full = msg(&wide_table());
+        let err = q::decode_response_cols(&full, &["seq", "px", "seq"]).unwrap_err();
+        assert!(
+            err.to_string().contains("`seq` named twice"),
+            "unexpected error: {err}"
+        );
+        let err = q::decode_response_cols(&full, &["s\0q"]).unwrap_err();
+        assert!(err.to_string().contains("NUL"), "unexpected error: {err}");
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn decode_response_cols_without_a_table_or_names_is_decode_response() {
+    Runtime::scope(|_rt| {
+        // Not a table: the names are ignored.
+        let longs = msg(&long_vec(&[1, 2, 3]));
+        let v = q::decode_response_cols(&longs, &["seq"]).unwrap();
+        assert_eq!(v.as_slice::<i64>().unwrap(), &[1, 2, 3]);
+
+        // No names: every column, as `decode_response` would.
+        let narrow = msg(&table(
+            &["seq", "sym"],
+            &[long_vec(&[1, 2]), sym_vec(&["AAPL", "MSFT"])],
+        ));
+        let none: &[&str] = &[];
+        let t = Table::from_value(q::decode_response_cols(&narrow, none).unwrap()).unwrap();
+        assert_eq!(t.column_names(), ["seq", "sym"]);
+
+        // A server error is an error either way.
+        let mut body = vec![(-128i8) as u8];
+        body.extend_from_slice(b"type\0");
+        let err = q::decode_response_cols(&msg(&body), &["seq"]).unwrap_err();
+        assert!(err.to_string().contains("type"), "unexpected error: {err}");
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn decode_response_cols_projects_a_keyed_tables_value_side() {
+    Runtime::scope(|_rt| {
+        let kt = msg(&keyed(
+            table(&["k"], &[sym_vec(&["x", "y"])]),
+            table(
+                &["a", "span", "c"],
+                &[
+                    long_vec(&[1, 2]),
+                    timespan_vec(&[1, 2]),
+                    float_vec(&[0.5, 1.5]),
+                ],
+            ),
+        ));
+        // A keyed table decodes as (key table; value table). Naming the key
+        // column is allowed and changes nothing.
+        let v = q::decode_response_cols(&kt, &["c", "k", "a"]).unwrap();
+        assert!(v.is_list() && v.len() == 2, "type {}", v.type_code());
+        let key = Table::from_value(v.get(0).unwrap()).unwrap();
+        let val = Table::from_value(v.get(1).unwrap()).unwrap();
+        assert_eq!(key.column_names(), ["k"]);
+        assert_eq!(
+            key.column("k").unwrap().get(1).unwrap().as_sym().unwrap(),
+            "y"
+        );
+        assert_eq!(val.column_names(), ["c", "a"]);
+        assert_eq!(
+            val.column("c").unwrap().as_slice::<f64>().unwrap(),
+            &[0.5, 1.5]
+        );
+
+        let err = q::decode_response_cols(&kt, &["k", "b"]).unwrap_err();
+        assert!(err.to_string().contains("`b`"), "unexpected error: {err}");
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn decode_response_cols_checks_the_wire_header() {
+    Runtime::scope(|_rt| {
+        let mut request = msg(&wide_table());
+        request[1] = 1; // sync request, not response
+        let err = q::decode_response_cols(&request, &["seq"]).unwrap_err();
         assert!(
             err.to_string().contains("expected response message type 2"),
             "unexpected error: {err}"
