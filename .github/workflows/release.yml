@@ -34,12 +34,30 @@ jobs:
       - name: Install toolchain deps
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev build-essential
 
-      # bindgen needs to be told where libclang lives on the runner.
+      # bindgen loads libclang, LLVM's C API, while rayforce-sys's build script
+      # runs. Name that library exactly: a pattern as broad as `libclang*.so*`
+      # also matches the compiler runtime under llvm-<v>/lib/clang/<v>/lib/linux
+      # (libclang_rt.*), a directory holding no libclang, and on the runners of
+      # 2026-10-20 `find | head -1` picked it. Prefer the LLVM of the `clang`
+      # installed above, and load each candidate to check it exports
+      # clang_createIndex before bindgen is pointed at its directory.
       - name: Locate libclang
         run: |
-          LIB="$(find /usr/lib -name 'libclang*.so*' 2>/dev/null | head -1)"
-          if [ -z "$LIB" ]; then echo "libclang not found" >&2; exit 1; fi
+          major="$(clang -dumpversion | cut -d. -f1)"
+          LIB=""
+          for f in "/usr/lib/llvm-$major/lib/libclang.so" \
+                   $(find /usr/lib -regextype posix-extended \
+                       -regex '.*/libclang(-[0-9][0-9.]*)?\.so(\.[0-9]+)*' | sort -V -r); do
+            if python3 -c 'import ctypes, sys; ctypes.CDLL(sys.argv[1]).clang_createIndex' "$f" 2>/dev/null; then
+              LIB="$f"
+              break
+            fi
+          done
+          if [ -z "$LIB" ]; then
+            echo "::error::no libclang under /usr/lib exports clang_createIndex"; exit 1
+          fi
           echo "LIBCLANG_PATH=$(dirname "$LIB")" >> "$GITHUB_ENV"
+          echo "Using $LIB, so LIBCLANG_PATH=$(dirname "$LIB")"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

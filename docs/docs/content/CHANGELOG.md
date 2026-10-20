@@ -48,6 +48,14 @@ All notable changes to `rayforce` are documented here. This project adheres to
   spelled it `i8`, which does not type-check where `c_char` is unsigned, as on
   aarch64 Linux.
 
+- **CI and the release workflow point bindgen at libclang itself.** They took
+  the first file under `/usr/lib` matching `libclang*.so*`, which also matches
+  LLVM's `libclang_rt` runtime. On the runners of 2026-10-20 that came first,
+  so bindgen found no libclang and the build script panicked. They now take the
+  libclang of the installed `clang`'s LLVM, or the newest other one, and load
+  it to check it exports `clang_createIndex` first. The README's Linux example
+  had the same search and is fixed the same way.
+
 ## 1.3.1
 
 ### Changed
