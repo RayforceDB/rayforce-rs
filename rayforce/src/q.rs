@@ -25,6 +25,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::{c_void, CString};
 use std::marker::PhantomData;
+use std::os::raw::{c_char, c_int};
 
 use rayforce_sys as sys;
 
@@ -528,8 +529,95 @@ unsafe fn libc_free(p: *mut std::ffi::c_void) {
 /// bytes and thread-safe anywhere, while this call allocates engine objects
 /// and must run on the thread that owns the [`crate::Runtime`] (like every
 /// other constructor in this crate). A Q server-side error surfaces as `Err`.
+///
+/// To keep only some columns of a wide table, use [`decode_response_cols`].
 pub fn decode_response(msg: &[u8]) -> Result<Value> {
     assert_on_runtime_thread("q::decode_response");
+    let (body, compressed) = response_body(msg)?;
+    let mut err = [0 as c_char; 256];
+    let res = unsafe {
+        sys::q_decode(
+            body.as_ptr() as *mut u8,
+            body.len() as i64,
+            compressed,
+            err.as_mut_ptr(),
+            err.len(),
+        )
+    };
+    unsafe { decoded(res, &err, "q_decode failed") }
+}
+
+/// [`decode_response`], keeping only the named columns of a table.
+///
+/// A table comes back with the columns `cols` names, in the order named, as
+/// q's `` cols#t `` does. The others are skipped by their serialized length:
+/// no string is built for a cell of a string column and no symbol of a symbol
+/// column is interned, so a caller that lands a few columns of a wide table no
+/// longer pays for all of them. Skipping reads only lengths, so a column
+/// [`decode_response`] rejects, a timespan, can be skipped.
+///
+/// ```no_run
+/// # use rayforce::{q, Runtime, Table};
+/// # fn frame() -> Vec<u8> { unimplemented!() }
+/// Runtime::scope(|_rt| {
+///     let msg: Vec<u8> = frame(); // a response your own transport read
+///     let fills = q::decode_response_cols(&msg, &["date", "Symbol", "LastPx"])?;
+///     let t = Table::from_value(fills)?;
+///     assert_eq!(t.shape().1, 3);
+///     Ok(())
+/// })?;
+/// # Ok::<(), rayforce::RayError>(())
+/// ```
+///
+/// - A name the table lacks is an `Err` naming it, and so is a name given
+///   twice or one holding a NUL. Every name is checked before any column is
+///   decoded.
+/// - A keyed table comes back as [`decode_response`] returns one, a list of
+///   its key table and value table. The key table is whole, and `cols` picks
+///   among the value columns; naming a key column is allowed and changes
+///   nothing.
+/// - A message that is not a table, and an empty `cols`, decode as
+///   [`decode_response`] decodes them. That includes a server error, which is
+///   an `Err` either way.
+/// - A compressed message is still decompressed whole: q's compression does
+///   not let a reader skip, so the saving starts after it.
+///
+/// Needs `rayforce-q` 2.5.0 or later. Like [`decode_response`], it must run on
+/// the thread that owns the [`crate::Runtime`].
+pub fn decode_response_cols<S: AsRef<str>>(msg: &[u8], cols: &[S]) -> Result<Value> {
+    assert_on_runtime_thread("q::decode_response_cols");
+    let (body, compressed) = response_body(msg)?;
+    let names = cols
+        .iter()
+        .map(|c| {
+            let c = c.as_ref();
+            CString::new(c)
+                .map_err(|_| RayError::binding(format!("Q: column name {c:?} contains NUL")))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let ptrs: Vec<*const c_char> = names.iter().map(|c| c.as_ptr()).collect();
+    let ncols =
+        c_int::try_from(ptrs.len()).map_err(|_| RayError::binding("Q: too many column names"))?;
+    let mut err = [0 as c_char; 256];
+    // `names` owns the strings `ptrs` points into and outlives the call, which
+    // only reads them.
+    let res = unsafe {
+        sys::q_decode_cols(
+            body.as_ptr() as *mut u8,
+            body.len() as i64,
+            compressed,
+            ptrs.as_ptr(),
+            ncols,
+            err.as_mut_ptr(),
+            err.len(),
+        )
+    };
+    unsafe { decoded(res, &err, "q_decode_cols failed") }
+}
+
+/// Check the 8-byte wire header of a complete Q response message and return
+/// its body and whether that body is compressed, as the decoders take them.
+fn response_body(msg: &[u8]) -> Result<(&[u8], c_int)> {
     // q_header_t (q.c): endianness, msgtype, compressed, reserved, u32 size.
     // `size` counts the whole message, header included. Little-endian wire only.
     const HEADER_LEN: usize = 8;
@@ -553,31 +641,27 @@ pub fn decode_response(msg: &[u8]) -> Result<Value> {
             "Q: message length does not match wire header",
         ));
     }
-    let compressed = i32::from(msg[2] != 0);
+    let compressed = c_int::from(msg[2] != 0);
     let body = &msg[HEADER_LEN..];
     if body.is_empty() {
         return Err(RayError::binding("Q: empty response body"));
     }
+    Ok((body, compressed))
+}
 
-    let mut err = [0i8; 256];
-    let res = unsafe {
-        sys::q_decode(
-            body.as_ptr() as *mut u8,
-            body.len() as i64,
-            compressed,
-            err.as_mut_ptr(),
-            err.len(),
-        )
-    };
+/// Turn what a decoder returned into a [`Value`]. Null is a decode failure
+/// whose reason the decoder wrote to `err` (`fallback` when it wrote none); a
+/// `RAY_ERROR`, such as a q server error, becomes `Err`.
+///
+/// # Safety
+/// `res` must be null or an owned pointer the decoder just returned, and `err`
+/// the buffer it was given.
+unsafe fn decoded(res: *mut sys::ray_t, err: &[c_char], fallback: &str) -> Result<Value> {
     if res.is_null() {
-        let msg = unsafe { std::ffi::CStr::from_ptr(err.as_ptr()) }.to_string_lossy();
-        let msg = if msg.is_empty() {
-            "q_decode failed".into()
-        } else {
-            msg
-        };
+        let msg = std::ffi::CStr::from_ptr(err.as_ptr()).to_string_lossy();
+        let msg = if msg.is_empty() { fallback.into() } else { msg };
         return Err(RayError::binding(format!("Q: {msg}")));
     }
-    let ok = unsafe { check(res)? };
-    Ok(unsafe { Value::from_owned(ok) })
+    let ok = check(res)?;
+    Ok(Value::from_owned(ok))
 }

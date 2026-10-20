@@ -260,6 +260,9 @@ fn main() -> rayforce::Result<()> {
   `Value::deserialize`.
 - `q::decode_response` — decode a Q message your own transport already read,
   when you want the socket in a separate thread rather than on the event loop.
+- `q::decode_response_cols` — the same, keeping only the named columns of a
+  table. The others are skipped without being built, so a wide table costs
+  only the columns you keep.
 
 ## :material-server-network: Serving the Q wire
 

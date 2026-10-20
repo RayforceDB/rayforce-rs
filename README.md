@@ -138,7 +138,8 @@ cargo test --workspace
 ```
 
 `rayforce-sys/vendor/rayforce-q` works the same way, minus the constants — nothing is
-stamped from it.
+stamped from it. The build script needs rayforce-q 2.5.0 or later, the first with
+`q_decode_cols`, and names the version when a checkout is older.
 
 To build against a core you are changing instead, point the build script at your own
 checkout. These take precedence over the vendored copies:
@@ -160,8 +161,10 @@ repo's `.cargo/config.toml`. If bindgen can't auto-detect libclang, set it yours
 ```sh
 # macOS (CTL):
 export LIBCLANG_PATH="/Library/Developer/CommandLineTools/usr/lib"
-# Linux:
-export LIBCLANG_PATH="$(dirname "$(find /usr/lib -name 'libclang*.so*' | head -1)")"
+# Linux: the directory of libclang itself. A pattern like libclang*.so* also
+# matches libclang-cpp and the libclang_rt runtime, whose directory has none.
+export LIBCLANG_PATH="$(dirname "$(find /usr/lib -regextype posix-extended \
+  -regex '.*/libclang(-[0-9][0-9.]*)?\.so(\.[0-9]+)*' | sort -V | tail -1)")"
 ```
 
 The `chrono` is on by default for date/time/timestamp conversions.

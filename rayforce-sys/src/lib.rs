@@ -51,6 +51,24 @@ extern "C" {
         err: *mut ::std::os::raw::c_char,
         errlen: usize,
     ) -> *mut ray_t;
+    /// As [`q_decode`], but a table comes back with only the `ncols` columns
+    /// named in `cols`, in the order named (q's `cols#t`). The other columns
+    /// are skipped by their serialized length: nothing is allocated or
+    /// interned for them, and a column `q_decode` rejects (a timespan) can be
+    /// skipped. For a keyed table the key comes back whole and the names pick
+    /// among the value columns. A name the table lacks is a `RAY_ERROR` naming
+    /// it; a null or repeated name returns null with `err` set. With
+    /// `ncols == 0`, or a message that is not a table, this is `q_decode`.
+    /// Since rayforce-q 2.5.0. Engine thread only.
+    pub fn q_decode_cols(
+        resp: *mut u8,
+        resp_len: i64,
+        compressed: ::std::os::raw::c_int,
+        cols: *const *const ::std::os::raw::c_char,
+        ncols: ::std::os::raw::c_int,
+        err: *mut ::std::os::raw::c_char,
+        errlen: usize,
+    ) -> *mut ray_t;
     /// Serialize `msg` into a complete Q wire request (8-byte header + body).
     /// The buffer is malloc'd by C and must be released with `libc::free`.
     /// `q_encode` always stamps the header's message-type byte as SYNC; a

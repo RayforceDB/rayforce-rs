@@ -3,6 +3,59 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
+## 1.3.2
+
+### Added
+
+- **`q::decode_response_cols`** decodes a complete Q response message keeping
+  only the named columns of a table, in the order named, as q's `` cols#t ``
+  does. The others are skipped by their serialized length: no string is built
+  for a cell of a string column and no symbol of a symbol column is interned,
+  so a caller that lands a few columns of a wide table no longer pays for all
+  of them. rayforce-q measured a 100 000-row, 142-column window kept to 23
+  columns at ~43 ms, against ~182 ms for the whole message. Skipping reads only
+  lengths, so a timespan column, which `q::decode_response` refuses, can be
+  dropped. A name the table lacks is an `Err` whose message names it
+  (`` q: column `x` not in table ``), and so are a name given twice and one
+  holding a NUL; every name is checked before any column is decoded. For a
+  keyed table the key table comes back whole and the names pick among the
+  value columns. A message that is not a table, or an empty name list, decodes
+  as `q::decode_response` decodes it, and a compressed message is still
+  decompressed whole. `rayforce-sys` declares the C function, `q_decode_cols`.
+
+### Changed
+
+- **`rayforce-q` is 2.5.0 (`c7582d2`)**, from 2.4.0 (`df8ced9`). The vendored
+  core stays at v2.11.5 (`5d5f47c`). 2.5.0 adds `q_decode_cols` to `q.h`. The
+  rest of `q.c`'s change is the fix below, and `q_decode` and the dict and
+  keyed-table construction moved into helpers both decoders share. rayforce-q
+  has pushed no 2.5.0 tag, so it is pinned by the merge of its pull request,
+  whose tree is the "Release 2.5.0" commit's. `rayforce-sys`'s build script
+  refuses a `RAYFORCE_Q_SRC` checkout whose `q.h` does not declare
+  `q_decode_cols`, naming 2.5.0, where a caller of `q::decode_response_cols`
+  would have failed to link.
+
+### Fixed
+
+- **A table decoded from the Q wire is no longer released twice when a column
+  cannot be added to it.** `ray_table_add_col` consumes the table on every
+  path, failure included, and rayforce-q's table builder released it again. A
+  table whose column is an atom reaches this from the wire on every decode
+  path, where the error object reusing the freed block masked it; on
+  `ray_table_add_col`'s out-of-memory paths the block was freed twice.
+
+- **`q::decode_response` passes its error buffer as `c_char`**, where it
+  spelled it `i8`, which does not type-check where `c_char` is unsigned, as on
+  aarch64 Linux.
+
+- **CI and the release workflow point bindgen at libclang itself.** They took
+  the first file under `/usr/lib` matching `libclang*.so*`, which also matches
+  LLVM's `libclang_rt` runtime. On the runners of 2026-10-20 that came first,
+  so bindgen found no libclang and the build script panicked. They now take the
+  libclang of the installed `clang`'s LLVM, or the newest other one, and load
+  it to check it exports `clang_createIndex` first. The README's Linux example
+  had the same search and is fixed the same way.
+
 ## 1.3.1
 
 ### Changed
