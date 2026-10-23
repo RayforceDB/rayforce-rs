@@ -4,7 +4,9 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
+use std::time::{Duration, Instant};
 
+use rayforce::q::{ConnectOpts, Keepalive};
 use rayforce::{q, q::QConnection, Runtime, Table, Value};
 
 // --- Q wire-format builders (server side) ---------------------------------
@@ -403,6 +405,133 @@ fn decode_response_cols_checks_the_wire_header() {
         let err = q::decode_response_cols(&request, &["seq"]).unwrap_err();
         assert!(
             err.to_string().contains("expected response message type 2"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Bind a mock that accepts one connection and never answers, not even the
+/// handshake; returns the port. The socket stays open until the test ends.
+fn spawn_silent() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    thread::spawn(move || {
+        if let Ok((sock, _)) = listener.accept() {
+            thread::sleep(Duration::from_secs(60));
+            drop(sock);
+        }
+    });
+    port
+}
+
+#[test]
+fn connect_opts_connects_with_every_keepalive() {
+    Runtime::scope(|_rt| {
+        // A sub-millisecond budget is valid: it rounds up, as a timeout does.
+        for keepalive in [
+            Keepalive::Auto,
+            Keepalive::Off,
+            Keepalive::Budget(Duration::from_secs(25)),
+            Keepalive::Budget(Duration::from_micros(1)),
+        ] {
+            let port = spawn_mock(msg(&long_vec(&[7])));
+            let opts = ConnectOpts {
+                keepalive,
+                ..ConnectOpts::default()
+            };
+            let conn = QConnection::connect_opts("127.0.0.1", port, &opts)
+                .unwrap_or_else(|e| panic!("{keepalive:?}: {e}"));
+            let v = conn.execute("7").unwrap();
+            assert_eq!(v.as_slice::<i64>().unwrap(), &[7], "{keepalive:?}");
+        }
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// The timeout and the keepalive are both `int` milliseconds at the C call, so
+/// swapped they would still compile. Swapped, this connect would wait out the
+/// 30 s budget as its timeout instead of failing at 200 ms.
+#[test]
+fn connect_opts_times_out_on_the_timeout_not_the_keepalive() {
+    Runtime::scope(|_rt| {
+        let port = spawn_silent();
+        let opts = ConnectOpts {
+            timeout: Some(Duration::from_millis(200)),
+            keepalive: Keepalive::Budget(Duration::from_secs(30)),
+            ..ConnectOpts::default()
+        };
+        let started = Instant::now();
+        let err = QConnection::connect_opts("127.0.0.1", port, &opts)
+            .err()
+            .expect("a silent peer cannot complete the handshake");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "took {:?}: {err}",
+            started.elapsed()
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn connect_opts_refuses_a_zero_keepalive_budget() {
+    Runtime::scope(|_rt| {
+        // `Off` already says off; a zero budget that meant it too would turn
+        // keepalive off without anyone asking for that.
+        let opts = ConnectOpts {
+            keepalive: Keepalive::Budget(Duration::ZERO),
+            ..ConnectOpts::default()
+        };
+        let err = QConnection::connect_opts("127.0.0.1", 1, &opts)
+            .err()
+            .expect("a zero budget is refused before connecting");
+        assert!(
+            err.to_string().contains("keepalive"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn connect_opts_refuses_a_keepalive_budget_past_the_c_int() {
+    Runtime::scope(|_rt| {
+        let ms = u64::try_from(i32::MAX).unwrap() + 1;
+        let opts = ConnectOpts {
+            keepalive: Keepalive::Budget(Duration::from_millis(ms)),
+            ..ConnectOpts::default()
+        };
+        let err = QConnection::connect_opts("127.0.0.1", 1, &opts)
+            .err()
+            .expect("a budget past i32::MAX ms is refused before connecting");
+        assert!(
+            err.to_string().contains("keepalive"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn connect_opts_refuses_a_zero_timeout() {
+    Runtime::scope(|_rt| {
+        // The C side reads 0 as "block forever", the opposite of what a zero
+        // timeout asks for. `None` is how to say no timeout.
+        let opts = ConnectOpts {
+            timeout: Some(Duration::ZERO),
+            ..ConnectOpts::default()
+        };
+        let err = QConnection::connect_opts("127.0.0.1", 1, &opts)
+            .err()
+            .expect("a zero timeout is refused before connecting");
+        assert!(
+            err.to_string().contains("timeout"),
             "unexpected error: {err}"
         );
         Ok(())

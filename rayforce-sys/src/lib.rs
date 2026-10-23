@@ -29,6 +29,18 @@ extern "C" {
         password: *const ::std::os::raw::c_char,
         timeout_ms: ::std::os::raw::c_int,
     ) -> ::std::os::raw::c_int;
+    /// `q_connect` with the keepalive chosen: [`Q_KEEPALIVE_AUTO`],
+    /// [`Q_KEEPALIVE_OFF`], or a budget in ms. Armed once the handshake has
+    /// succeeded, best-effort as in the core: if `SO_KEEPALIVE` fails, the
+    /// connection is returned without keepalive. `q_connect` is this with AUTO.
+    pub fn q_connect_opts(
+        host: *const ::std::os::raw::c_char,
+        port: ::std::os::raw::c_int,
+        user: *const ::std::os::raw::c_char,
+        password: *const ::std::os::raw::c_char,
+        timeout_ms: ::std::os::raw::c_int,
+        keepalive_ms: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
     /// Close a connection fd. Returns 0 on success, -1 on an invalid fd.
     pub fn q_close(fd: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
     /// Encode + exchange + decode: send `msg` and return the decoded response
@@ -130,6 +142,15 @@ extern "C" {
 pub const Q_ERR_SOCKET: ::std::os::raw::c_int = -1;
 pub const Q_ERR_HANDSHAKE: ::std::os::raw::c_int = -2;
 pub const Q_ERR_TIMEOUT: ::std::os::raw::c_int = -3;
+
+/// `q_connect_opts` keepalive choices (mirrors `q.h`, which holds them equal to
+/// the core's `RAY_IPC_KEEPALIVE_*`). A positive value is a budget in ms.
+///
+/// AUTO is keepalive at the core's 60 s default, with no bound on
+/// unacknowledged data.
+pub const Q_KEEPALIVE_AUTO: ::std::os::raw::c_int = 0;
+/// No keepalive.
+pub const Q_KEEPALIVE_OFF: ::std::os::raw::c_int = -1;
 
 /// `ray_ipc_connect` failure codes.
 ///

@@ -227,6 +227,29 @@ fn main() -> rayforce::Result<()> {
 }
 ```
 
+!!! note "A peer that goes silent"
+
+    `is_alive()` turns false when the peer closes. A peer that vanishes without
+    closing, such as a VPN tunnel reaped with no FIN, sends nothing to notice,
+    so the kernel's keepalive probes it instead. `connect` arms it at the
+    core's 60 s default. To notice sooner, connect with a budget:
+
+    ```rust,no_run
+    # use std::time::Duration;
+    # use rayforce::{q::{ConnectOpts, Keepalive, QConnection}, Runtime};
+    # Runtime::scope(|_rt| {
+    let opts = ConnectOpts {
+        keepalive: Keepalive::Budget(Duration::from_secs(25)),
+        ..ConnectOpts::default()
+    };
+    let conn = QConnection::connect_opts("127.0.0.1", 5010, &opts)?;
+    # Ok(())
+    # }).unwrap();
+    ```
+
+    The budget is roughly when a silent peer counts as dead. On Linux it can be
+    up to one probe interval late, because the kernel acts on a probe tick.
+
 !!! note "A handler is a type, not a closure"
 
     The core takes a bare C function pointer with no user-data argument, so
