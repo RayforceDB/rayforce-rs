@@ -3,6 +3,49 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
+## 1.4.0
+
+### Changed
+
+- **The vendored core is v3.0.1 (`0aa2d6a`), from v2.11.5 (`5d5f47c`).** One
+  squashed release commit of about 230 changes across 475 files.
+  `include/rayforce.h` grows: a `RAY_TIMESPAN` type (16) with `ray_timespan`,
+  and nanosecond timespan literals in Rayfall; `ray_error_msg` and
+  `ray_error_clear` made public, which this crate already bound as internal
+  functions; `ray_table_col` and `ray_table_col_idx`; `ray_is_vector_type`;
+  and the `RAY_ERR_VERSION` and `RAY_ERR_FPENV` error codes. No `Scalar` or
+  `Vector` variant maps type 16 yet. The nineteen `INTERNAL_FNS` signatures
+  are unchanged, and the private headers bindgen reads grow additively, for
+  compiled closures, heap bounds and the pool. Engine highlights: q-style F32
+  literals and `(times [i n] body...)`; generation-2 compressed columns read
+  by range, per-column FSST-compressed symbol files, and files rayforce wrote
+  read back without re-validation; bounded memory on small machines, wide
+  dense grouping and two-pass top-k grouping, the default pool sized from the
+  CPUs the process may run on; integer atom subtraction promotes both
+  operands; `alter` amends a dotted target in place. The suite passes
+  unchanged on both the release and the DFD-armed debug core.
+
+- **`rayforce-q` is 2.6.0 (`69b4210`), from 2.5.0 (`c7582d2`)**, pinned by its
+  tag again. Two changes reach this crate through the C client `QConnection`
+  is built on. Every connection now has kernel TCP keepalive at the core's
+  60 s default, so a publisher that vanishes without closing (a VPN tunnel
+  reaped, a NAT flow dropped) fails the connection and `Subscription::is_alive`
+  turns false within about a minute, where it used to wait forever; the other
+  side is that an idle connection whose network is down for over a minute is
+  closed where it used to resume, and this crate does not yet expose
+  rayforce-q's `Q_KEEPALIVE_OFF`. And a connection this process opened takes
+  frames up to 2 GiB, where every frame stopped at 256 MiB, so a publisher's
+  catch-up no longer loses its largest frames; a pushed frame a subscription
+  cannot decode now closes it, with the reason on stderr, instead of being
+  dropped with the connection left open. A port served with `serve_q` keeps
+  the 256 MiB limit. 2.6.0 needs core v2.11.0 or later, for
+  `ray_sock_set_keepalive`.
+
+- **bindgen is 0.73, from 0.70.** 0.73 parses C11 `_Atomic` in both of its
+  spellings, so the `_Atomic` to `__volatile` defines 1.3.1 added to
+  `rayforce-sys`'s build script for bindgen 0.70 are gone. The MSRV stays
+  1.74; bindgen 0.73 needs 1.71.
+
 ## 1.3.2
 
 ### Added
