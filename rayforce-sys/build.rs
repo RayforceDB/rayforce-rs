@@ -24,7 +24,7 @@ use std::process::Command;
 ///
 /// Must match the tag `vendor/rayforce` is pinned to. CI asserts the two agree;
 /// see the "Check vendored core pin" step in `.github/workflows/ci.yml`.
-const CORE_VERSION: &str = "2.11.5";
+const CORE_VERSION: &str = "3.0.1";
 
 /// Commit the `vendor/rayforce` submodule is pinned to, stamped alongside
 /// [`CORE_VERSION`]. Also checked by CI's "Check vendored core pin" step.
@@ -35,7 +35,7 @@ const CORE_VERSION: &str = "2.11.5";
 /// under OUT_DIR, an unset value does not fall back to "unknown" — it silently
 /// reports the HEAD of whatever unrelated repository happens to enclose the
 /// build directory.
-const CORE_COMMIT: &str = "5d5f47c";
+const CORE_COMMIT: &str = "0aa2d6a";
 
 /// Warning flags for the vendored core build — the core's own `WARNS`
 /// (`Makefile:35`) minus `-Werror`. Consumers compile this with whatever
@@ -47,8 +47,7 @@ const CORE_WARNS: &str = "-Wall -Wextra -Wstrict-prototypes -Wno-unused-paramete
 /// Core headers outside `include/` that declare [`INTERNAL_FNS`]. Private to
 /// the core, but they ship in this crate alongside the sources they belong to
 /// (`Cargo.toml`'s `vendor/rayforce/src/**/*.h`), and each parses standalone
-/// given `include/` and `src/` on the header search path — plus the
-/// `-D_Atomic` workaround in [`main`].
+/// given `include/` and `src/` on the header search path.
 const CORE_PRIVATE_HEADERS: &[&str] = &[
     "lang/eval.h",
     "lang/internal.h",
@@ -204,34 +203,6 @@ fn main() {
         .header(include.join("rayforce.h").display().to_string())
         .clang_arg(format!("-I{}", include.display()))
         .clang_arg(format!("-I{}", core.join("src").display()))
-        // bindgen 0.70 cannot resolve the type of a C11 `_Atomic` variable and
-        // aborts the whole parse with "Couldn't resolve constant type". The
-        // core spells atomics two ways, the specifier `_Atomic(T)` and the
-        // qualifier `_Atomic T`, and no single macro can match both: a
-        // function-like `_Atomic(T)` is not expanded where no parenthesis
-        // follows. So `_Atomic` is defined as `__volatile`, and `__volatile`
-        // as a function-like macro. A specifier rescans to `__volatile(T)` and
-        // then to plain `T`; a qualifier, with no parenthesis to invoke it,
-        // stays `__volatile T`, an ordinary volatile that bindgen parses. No
-        // header in the parse writes `__volatile(`; inline asm, the one place
-        // a volatile keyword meets a parenthesis, conventionally spells it
-        // `__volatile__` or `volatile`, and neither is touched.
-        //
-        // The specifiers come in through `lang/internal.h`, the only header
-        // declaring ray_{set,get}_splayed_fn / ray_get_parted_fn, which
-        // includes `mem/heap.h`, which includes `core/platform.h`: the file
-        // scope globals `ray_heap_pending_merge` (`mem/heap.h:609`) and
-        // `ray_parallel_flag` (`core/platform.h:231`) and the `foreign` field
-        // of `ray_heap_t` (`mem/heap.h:587`). The qualifiers are the `code`
-        // field of `struct ray_poll` (`core/poll.h:116`), which `core/ipc.h`
-        // brings in, and the global `g_global_epoch` (`lang/env.h:172`). No
-        // global is allowlisted, `ray_heap_t` is reachable from nothing that
-        // is, `ray_poll` is opaque below, and `include/rayforce.h` never says
-        // `_Atomic` — so no generated type contains one, and no layout bindgen
-        // emits can shift. This only affects bindgen's parse; the core is
-        // compiled by its own Makefile.
-        .clang_arg("-D_Atomic=__volatile")
-        .clang_arg("-D__volatile(T)=T")
         // Everything the public header declares. This bound is load-bearing:
         // the private headers added below declare ~700 functions and ~100 RAY_*
         // constants between them, so a blanket `ray_.*` would drag in the whole

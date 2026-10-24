@@ -41,7 +41,7 @@ include = [
 ]
 
 [build-dependencies]
-bindgen = "0.70"
+bindgen = "0.73"
 cc = "1"
 
 [lib]
