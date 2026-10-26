@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::ffi::{c_void, CString};
 use std::marker::PhantomData;
 use std::os::raw::{c_char, c_int};
+use std::time::Duration;
 
 use rayforce_sys as sys;
 
@@ -33,6 +34,88 @@ use crate::error::{check, RayError, Result};
 use crate::poll::Poll;
 use crate::runtime::assert_on_runtime_thread;
 use crate::value::Value;
+
+/// How a [`QConnection`] notices a peer that vanished without closing, such as
+/// a suspended host or a VPN tunnel reaped with no FIN. Without keepalive
+/// nothing arrives and nothing fails, and a [`Subscription`] that only receives
+/// stays alive forever.
+///
+/// The same three choices as the core's own client (`ray_ipc_connect_opts`).
+/// The kernel does the probing, so a peer that is alive but slow to push is
+/// never affected: probes only go out while nothing is in flight.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Keepalive {
+    /// The core's default: a silent peer is dead after about 60 s, with no
+    /// bound on how long sent data may stay unacknowledged.
+    #[default]
+    Auto,
+    /// No keepalive. A silent peer is waited on forever.
+    Off,
+    /// A silent peer is dead about this long after the last thing it sent. The
+    /// first probe goes out after half the budget idle, then three more a sixth
+    /// apart, each in whole seconds and at least 1. Sent data that stays
+    /// unacknowledged this long also fails the connection (`TCP_USER_TIMEOUT`
+    /// on Linux), which a live peer that stops reading would trip too.
+    ///
+    /// On Linux the kernel acts on a probe tick, so the connection can fail up
+    /// to one interval late: rayforce-q measured a 25 s budget failing at
+    /// 28.3 s with the peer's packets dropped.
+    Budget(Duration),
+}
+
+/// What [`QConnection::connect_opts`] takes beyond the address. The default is
+/// no credentials, no timeout and [`Keepalive::Auto`]:
+///
+/// ```no_run
+/// use std::time::Duration;
+/// use rayforce::{q::{ConnectOpts, Keepalive, QConnection}, Runtime};
+/// Runtime::scope(|_rt| {
+///     let opts = ConnectOpts {
+///         keepalive: Keepalive::Budget(Duration::from_secs(25)),
+///         ..ConnectOpts::default()
+///     };
+///     let conn = QConnection::connect_opts("localhost", 5010, &opts)?;
+///     Ok(())
+/// })
+/// # .unwrap();
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ConnectOpts<'a> {
+    /// Empty `user` and `password` degrade to the no-auth handshake.
+    pub user: &'a str,
+    pub password: &'a str,
+    /// Bounds the connect and each request on the plain client. `None` blocks.
+    pub timeout: Option<Duration>,
+    pub keepalive: Keepalive,
+}
+
+/// `keepalive` as the `keepalive_ms` `q_connect_opts` takes.
+fn keepalive_ms(keepalive: Keepalive) -> Result<c_int> {
+    match keepalive {
+        Keepalive::Auto => Ok(sys::Q_KEEPALIVE_AUTO),
+        Keepalive::Off => Ok(sys::Q_KEEPALIVE_OFF),
+        Keepalive::Budget(budget) => positive_ms("keepalive budget", budget),
+    }
+}
+
+/// `duration` in the whole milliseconds the C side takes, rounded up. Zero is
+/// refused, because the C side reads 0 as something else: no timeout at all, or
+/// the default keepalive. Truncated, a sub-millisecond value would become that
+/// 0, hence the rounding.
+fn positive_ms(what: &str, duration: Duration) -> Result<c_int> {
+    if duration.is_zero() {
+        return Err(RayError::binding(format!(
+            "Q: a {what} must be greater than zero"
+        )));
+    }
+    let ms = duration.as_nanos().div_ceil(1_000_000);
+    c_int::try_from(ms).map_err(|_| {
+        RayError::binding(format!(
+            "Q: a {what} of {duration:?} is past the {} ms the C side takes",
+            c_int::MAX
+        ))
+    })
+}
 
 /// An open connection to a Q server. Closed on drop.
 ///
@@ -73,7 +156,8 @@ impl QConnection {
 
     /// Open a TCP connection with optional credentials and a connect/op timeout
     /// (`timeout_ms <= 0` blocks). Empty `user`/`password` degrade to the
-    /// no-auth handshake.
+    /// no-auth handshake. Keepalive is [`Keepalive::Auto`]; see
+    /// [`QConnection::connect_opts`] to choose it.
     pub fn connect_with(
         host: &str,
         port: u16,
@@ -81,18 +165,47 @@ impl QConnection {
         password: &str,
         timeout_ms: i32,
     ) -> Result<Self> {
+        let timeout = u64::try_from(timeout_ms)
+            .ok()
+            .filter(|&ms| ms > 0)
+            .map(Duration::from_millis);
+        Self::connect_opts(
+            host,
+            port,
+            &ConnectOpts {
+                user,
+                password,
+                timeout,
+                keepalive: Keepalive::Auto,
+            },
+        )
+    }
+
+    /// Open a TCP connection with everything [`ConnectOpts`] holds: credentials,
+    /// a connect/op timeout and the [`Keepalive`].
+    ///
+    /// A zero `timeout` or keepalive budget is refused, and so is either past
+    /// `i32::MAX` milliseconds, the most the C side takes. Both are checked
+    /// before anything connects.
+    pub fn connect_opts(host: &str, port: u16, opts: &ConnectOpts<'_>) -> Result<Self> {
         assert_on_runtime_thread("QConnection::connect");
+        let timeout_ms = opts
+            .timeout
+            .map_or(Ok(0), |timeout| positive_ms("timeout", timeout))?;
+        let keepalive_ms = keepalive_ms(opts.keepalive)?;
         let host_c = CString::new(host).map_err(|_| RayError::binding("Q host contains NUL"))?;
-        let user_c = CString::new(user).map_err(|_| RayError::binding("Q user contains NUL"))?;
-        let pass_c =
-            CString::new(password).map_err(|_| RayError::binding("Q password contains NUL"))?;
+        let user_c =
+            CString::new(opts.user).map_err(|_| RayError::binding("Q user contains NUL"))?;
+        let pass_c = CString::new(opts.password)
+            .map_err(|_| RayError::binding("Q password contains NUL"))?;
         let fd = unsafe {
-            sys::q_connect(
+            sys::q_connect_opts(
                 host_c.as_ptr(),
                 i32::from(port),
                 user_c.as_ptr(),
                 pass_c.as_ptr(),
                 timeout_ms,
+                keepalive_ms,
             )
         };
         if fd < 0 {

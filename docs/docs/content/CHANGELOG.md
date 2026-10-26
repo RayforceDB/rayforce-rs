@@ -3,6 +3,19 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- **`QConnection::connect_opts` chooses the keepalive.** It takes
+  `ConnectOpts`: credentials, a timeout and a `Keepalive`, which is `Auto` (the
+  core's 60 s default), `Off`, or `Budget(Duration)`, roughly when a silent peer
+  counts as dead. `connect` and `connect_with` keep their signatures and get
+  `Auto`. A zero timeout or budget is refused rather than passed on, because the
+  C side reads 0 as no timeout or as the default keepalive, and so is either
+  past `i32::MAX` milliseconds. `rayforce-sys` binds `q_connect_opts` and the
+  `Q_KEEPALIVE_*` constants.
+
 ## 1.4.0
 
 ### Changed
