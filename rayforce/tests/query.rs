@@ -251,3 +251,51 @@ fn head_tail_take() {
     })
     .unwrap();
 }
+
+#[test]
+fn symbol_literal_filter_is_data() {
+    for scenario in 0..4 {
+        Runtime::scope(|_rt| {
+            let mut names = vec!["account"];
+            let mut columns = vec![Value::sym_vec(&["A", "B"])];
+            if scenario == 1 {
+                rayforce::set_global("A", &Value::sym("B"))?;
+            }
+            if scenario == 2 {
+                names.push("A");
+                columns.push(Value::sym_vec(&["B", "B"]));
+            }
+            let table = Table::new(&names, &columns)?;
+            let select = table.select();
+            let select = if scenario == 3 {
+                select.agg("A", col("account"))
+            } else {
+                select.col("account")
+            };
+            let rows = select
+                .filter(col("account").eq(Value::sym("A")))
+                .execute()?;
+            assert_eq!(rows.nrows(), 1, "scenario {scenario}");
+            let output = if scenario == 3 { "A" } else { "account" };
+            assert_eq!(rows.column(output)?.get(0)?.as_sym().unwrap(), "A");
+            if scenario == 2 {
+                let explicit = table
+                    .select()
+                    .col("account")
+                    .filter(col("account").eq(col("A")))
+                    .execute()?;
+                assert_eq!(explicit.nrows(), 1);
+                assert_eq!(explicit.column("account")?.get(0)?.as_sym().unwrap(), "B");
+            }
+            let string = table
+                .select()
+                .col("account")
+                .filter(col("account").eq("A"))
+                .execute()?;
+            assert_eq!(string.nrows(), 1);
+            assert_eq!(string.column("account")?.get(0)?.as_sym().unwrap(), "A");
+            Ok(())
+        })
+        .unwrap();
+    }
+}

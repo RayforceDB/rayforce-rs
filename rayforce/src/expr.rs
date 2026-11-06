@@ -60,9 +60,9 @@ macro_rules! into_expr_lit {
 into_expr_lit!(bool, u8, i16, i32, i64, f32, f64);
 
 // In expressions, bare string literals become STRING atoms (matching the
-// Python query compiler): the select/DAG path compares symbol columns against
-// string scalars, whereas a symbol scalar raises a schema error. (This differs
-// from the general `ToValue` path, where `&str` is a symbol.)
+// Python query compiler). Explicit SYM literals are quoted during compilation
+// below, so neither column nor global-env names can capture their value.
+// This differs from the general `ToValue` path, where `&str` is a symbol.
 impl IntoExpr for &str {
     fn into_expr(self) -> Expr {
         Expr::Lit(Value::string(self))
@@ -195,6 +195,12 @@ impl Expr {
     pub fn compile(&self) -> Value {
         match self {
             Expr::Col(name) => Value::name_ref(name),
+            // A literal SYM must not be resolved as a column/global name.
+            // Use explicit quote: ATTR_QUOTED alone still permits query-column
+            // capture, and mutating a retained clone would alter the caller.
+            Expr::Lit(v) if v.type_code() == -(rayforce_sys::RAY_SYM as i8) => {
+                Value::list(&[Value::name_ref(Operation::Quote.as_str()), v.clone()])
+            }
             Expr::Lit(v) => v.clone(),
             Expr::Op(op, operands) => {
                 let mut items = Vec::with_capacity(operands.len() + 1);
