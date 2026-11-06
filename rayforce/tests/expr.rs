@@ -139,3 +139,29 @@ fn sum_of_filter() {
     })
     .unwrap();
 }
+
+#[test]
+fn symbol_literal_standalone_and_compile_shape() {
+    Runtime::scope(|_rt| {
+        let value = Value::sym("rs26_literal_a");
+        let expression = lit(value.clone());
+        let attrs = value.attrs();
+        let compiled = expression.compile();
+        assert!(compiled.is_list());
+        assert_eq!(compiled.len(), 2);
+        assert_eq!(compiled.get(0).unwrap().as_sym().unwrap(), "quote");
+        assert_eq!(compiled.get(1).unwrap().as_sym().unwrap(), "rs26_literal_a");
+        assert_eq!(value.attrs(), attrs);
+        assert_eq!(expression.execute()?.as_sym().unwrap(), "rs26_literal_a");
+        rayforce::set_global("rs26_literal_a", &Value::sym("rs26_literal_b"))?;
+        assert_eq!(expression.execute()?.as_sym().unwrap(), "rs26_literal_a");
+        assert_eq!(col("rs26_literal_a").execute()?.as_sym().unwrap(), "rs26_literal_b");
+        assert_eq!(value.attrs(), attrs);
+        let vector = lit(Value::sym_vec(&["A", "B"])).compile();
+        assert!(vector.is_vec());
+        assert!(!vector.is_list());
+        assert_eq!(vector.get(0)?.as_sym().unwrap(), "A");
+        Ok(())
+    })
+    .unwrap();
+}
