@@ -272,18 +272,26 @@ fn symbol_literal_filter_is_data() {
             } else {
                 select.col("account")
             };
-            let rows = select.filter(col("account").eq(Value::sym("A"))).execute()?;
+            let rows = select
+                .filter(col("account").eq(Value::sym("A")))
+                .execute()?;
             assert_eq!(rows.nrows(), 1, "scenario {scenario}");
             let output = if scenario == 3 { "A" } else { "account" };
             assert_eq!(rows.column(output)?.get(0)?.as_sym().unwrap(), "A");
             if scenario == 2 {
-                let explicit = table.select().col("account")
-                    .filter(col("account").eq(col("A"))).execute()?;
+                let explicit = table
+                    .select()
+                    .col("account")
+                    .filter(col("account").eq(col("A")))
+                    .execute()?;
                 assert_eq!(explicit.nrows(), 1);
                 assert_eq!(explicit.column("account")?.get(0)?.as_sym().unwrap(), "B");
             }
-            let string = table.select().col("account")
-                .filter(col("account").eq("A")).execute()?;
+            let string = table
+                .select()
+                .col("account")
+                .filter(col("account").eq("A"))
+                .execute()?;
             assert_eq!(string.nrows(), 1);
             assert_eq!(string.column("account")?.get(0)?.as_sym().unwrap(), "A");
             Ok(())

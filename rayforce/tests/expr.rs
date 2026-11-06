@@ -155,7 +155,10 @@ fn symbol_literal_standalone_and_compile_shape() {
         assert_eq!(expression.execute()?.as_sym().unwrap(), "rs26_literal_a");
         rayforce::set_global("rs26_literal_a", &Value::sym("rs26_literal_b"))?;
         assert_eq!(expression.execute()?.as_sym().unwrap(), "rs26_literal_a");
-        assert_eq!(col("rs26_literal_a").execute()?.as_sym().unwrap(), "rs26_literal_b");
+        assert_eq!(
+            col("rs26_literal_a").execute()?.as_sym().unwrap(),
+            "rs26_literal_b"
+        );
         assert_eq!(value.attrs(), attrs);
         let vector = lit(Value::sym_vec(&["A", "B"])).compile();
         assert!(vector.is_vec());
