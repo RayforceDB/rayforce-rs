@@ -199,6 +199,44 @@ impl Value {
         }
     }
 
+    /// Exact length in bytes of the frame [`serialize`](Self::serialize) would return for
+    /// this value — IPC header plus payload — computed without allocating the serialized frame buffer.
+    ///
+    /// This is also the number of bytes the core's `.log.write` appends for the same value
+    /// (`ray_log_write_fn`: one `ray_ipc_header_t` + `ray_serde_size` payload bytes).
+    ///
+    /// Errors (never a guessed size): the core reports a non-positive payload size (e.g. an
+    /// encoded column that fails to decode, or size overflow), the total overflows `usize`,
+    /// or the value is a deferred (lazy) result. Values built by this crate are always
+    /// materialized; a lazy one is refused rather than evaluated just to be sized.
+    pub fn frame_len(&self) -> Result<usize> {
+        unsafe {
+            if raw::type_code(self.as_ptr()) == error::RAY_LAZY {
+                return Err(crate::error::RayError::binding(
+                    "frame_len: lazy value (materialize first)",
+                ));
+            }
+            let payload = sys::ray_serde_size(self.as_ptr());
+            if payload <= 0 {
+                let detail = {
+                    let m = sys::ray_error_msg();
+                    if m.is_null() {
+                        String::new()
+                    } else {
+                        std::ffi::CStr::from_ptr(m).to_string_lossy().into_owned()
+                    }
+                };
+                return Err(crate::error::RayError::binding(format!(
+                    "frame_len: payload size {payload} {detail}"
+                )));
+            }
+            usize::try_from(payload)
+                .ok()
+                .and_then(|p| p.checked_add(std::mem::size_of::<sys::ray_ipc_header_t>()))
+                .ok_or_else(|| crate::error::RayError::binding("frame_len: size overflow"))
+        }
+    }
+
     /// Serialize to a byte vector (core wire format with IPC header).
     pub fn serialize(&self) -> Result<Vec<u8>> {
         unsafe {

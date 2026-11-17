@@ -86,6 +86,9 @@ const INTERNAL_FNS: &[&str] = &[
     // src/store/serde.h — serialize / deserialize a U8 vector with IPC header
     "ray_ser",
     "ray_de",
+    // src/store/serde.h — payload size `ray_ser`/`.log.write` will emit (excluding the
+    // IPC header; <= 0 on failure). Paired with the `ray_ipc_header_t` type below.
+    "ray_serde_size",
     // src/core/runtime.h — last per-VM error message (set with a RAY_ERROR)
     "ray_error_msg",
     // src/core/ipc.h — whether a handle still names a live connection
@@ -231,6 +234,9 @@ fn main() {
     for func in INTERNAL_FNS {
         builder = builder.allowlist_function(func);
     }
+    // src/store/serde.h — the IPC frame header `ray_ser` prepends, so the safe crate can
+    // size a full frame from the real layout instead of a hand-copied constant.
+    builder = builder.allowlist_type("ray_ipc_header_t");
 
     builder
         .generate()

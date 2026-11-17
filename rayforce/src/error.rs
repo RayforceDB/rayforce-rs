@@ -146,7 +146,7 @@ pub(crate) unsafe fn check(v: Raw) -> Result<Raw> {
 
 /// `RAY_LAZY` — the deferred-DAG result type returned by `ray_eval` and
 /// graph-aware builtins.
-const RAY_LAZY: i8 = 104;
+pub(crate) const RAY_LAZY: i8 = 104;
 
 /// Materialize a lazy DAG result into a concrete value. A no-op for non-lazy
 /// inputs; consumes the lazy reference and returns the owned materialized one.
