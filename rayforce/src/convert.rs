@@ -4,7 +4,8 @@
 //! [`ToValue`] builds a `Value` from a Rust value; [`FromValue`] extracts one.
 //! Bare `&str`/`String` map to **symbols** (matching the Python bindings); wrap
 //! in [`Str`] for a string atom. [`Guid`] carries 16 raw bytes. With the
-//! `chrono` feature, date/time/timestamp types convert directly.
+//! `chrono` feature, date/time/timestamp types convert directly, and a
+//! timespan converts to and from `chrono::Duration`.
 
 // `RayError` is only constructed by the chrono conversions below.
 #[cfg(feature = "chrono")]
@@ -233,6 +234,22 @@ mod chrono_impls {
         }
     }
 
+    /// A timespan atom. The engine's timespan is i64 nanoseconds (±~292
+    /// years), which a `chrono::Duration` can exceed; such a duration
+    /// saturates toward the limit, never reaching `i64::MIN`, the null.
+    impl ToValue for chrono::Duration {
+        fn to_value(&self) -> Value {
+            let ns = self
+                .num_nanoseconds()
+                .unwrap_or(if *self < chrono::Duration::zero() {
+                    i64::MIN + 1
+                } else {
+                    i64::MAX
+                });
+            Value::timespan_nanos(ns)
+        }
+    }
+
     impl FromValue for NaiveDate {
         fn from_value(v: &Value) -> Result<Self> {
             let days = v.as_date_days()?;
@@ -255,6 +272,14 @@ mod chrono_impls {
             epoch
                 .checked_add_signed(chrono::Duration::nanoseconds(ns))
                 .ok_or_else(|| RayError::binding("timestamp out of range"))
+        }
+    }
+    /// Every i64 nanosecond count fits a `chrono::Duration`. Extract a column
+    /// that may hold nulls as `Option<chrono::Duration>`: a null element boxes
+    /// as the untyped null, which is `None` there and an `Err` here.
+    impl FromValue for chrono::Duration {
+        fn from_value(v: &Value) -> Result<Self> {
+            Ok(chrono::Duration::nanoseconds(v.as_timespan_nanos()?))
         }
     }
 

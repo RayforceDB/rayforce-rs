@@ -199,6 +199,11 @@ impl Value {
         self.raw_slice::<i64>(sys::RAY_TIMESTAMP as i8)
     }
 
+    /// Zero-copy view of a timespan vector as raw nanoseconds.
+    pub fn timespan_nanos_slice(&self) -> Result<&[i64]> {
+        self.raw_slice::<i64>(sys::RAY_TIMESPAN as i8)
+    }
+
     /// Zero-copy slice of a vector whose element type tag equals `expected` and
     /// whose element width equals `size_of::<T>()`.
     fn raw_slice<T: Copy>(&self, expected: i8) -> Result<&[T]> {
@@ -225,7 +230,7 @@ impl Value {
     /// True if element `idx` is null.
     ///
     /// Nulls are in-band. For the sentinel-encoded types (`i16`/`i32`/`i64`,
-    /// `f32`/`f64`, date/time/timestamp, GUID) the core first consults the
+    /// `f32`/`f64`, date/time/timestamp/timespan, GUID) the core first consults the
     /// vector's `HAS_NULLS` attribute — raised by [`Value::vec`] when the raw
     /// payload already holds a sentinel, and by [`Value::set_null`] — and only
     /// then compares the element against its sentinel (`i64::MIN`, `NaN`, the
@@ -295,6 +300,7 @@ impl Value {
                 sys::RAY_DATE => Value::date_days(*(base.add(idx * 4) as *const i32)),
                 sys::RAY_TIME => Value::time_millis(*(base.add(idx * 4) as *const i32)),
                 sys::RAY_TIMESTAMP => Value::timestamp_nanos(*(base.add(idx * 8) as *const i64)),
+                sys::RAY_TIMESPAN => Value::timespan_nanos(*(base.add(idx * 8) as *const i64)),
                 sys::RAY_GUID => Value::guid(&*(base.add(idx * 16) as *const [u8; 16])),
                 sys::RAY_SYM => {
                     // A cell is a *position* in the vector's symbol domain, not a

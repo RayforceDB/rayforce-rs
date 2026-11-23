@@ -209,6 +209,11 @@ fn a_cancel_from_the_client_is_reported_as_the_clients() {
 fn a_push_is_answered_once_the_queries_ahead_of_it_end() {
     // Room for the push's own round trip after the queued query's answer.
     const SLACK: Duration = Duration::from_millis(250);
+    // Each time is taken by the thread that read the answer, so two answers
+    // the server wrote microseconds apart can be timed in either order: one
+    // run in a dozen or so timed the push 0.3 ms before the query ahead of
+    // it. A push that did not wait would be answered seconds early.
+    const WAKEUP: Duration = Duration::from_millis(20);
     Runtime::scope(|rt| {
         rt.eval(TABLE)?;
         let poll = Poll::install()?;
@@ -237,7 +242,7 @@ fn a_push_is_answered_once_the_queries_ahead_of_it_end() {
         });
         assert_eq!(reply, (RESPONSE, long_atom(2)), "answered, not cancelled");
         assert!(
-            push >= first,
+            push + WAKEUP >= first,
             "the push waits for the query being evaluated: {push:?} against {first:?}"
         );
         assert!(

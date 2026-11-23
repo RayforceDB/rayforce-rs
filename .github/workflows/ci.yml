@@ -102,7 +102,7 @@ jobs:
       # so the server checks its own side of every exchange. (main.c itself is
       # compiled at the Makefile's default RELEASE_CFLAGS either way. `-DDEBUG`
       # reaches no struct in the public header — only the RAY_ASSERT_VALUE macro
-      # at rayforce.h:242 — so the two agree on layout.)
+      # at rayforce.h:246 — so the two agree on layout.)
       #
       # The three make variables are read back out of build.rs rather than
       # restated, the way scripts/check-vendored-pin.sh already reads them: the
@@ -111,12 +111,20 @@ jobs:
       # binary instead of the core's.
       - name: Build the core server binary
         run: |
-          cargo build --workspace --tests
-          # Absolute: cargo runs each test binary with the cwd set to its own
-          # crate root, so a workspace-relative RAYFORCE_BINARY would not resolve.
-          CORE=$(ls -dt "$PWD"/target/debug/build/rayforce-sys-*/out/core 2>/dev/null | head -1)
-          if [ ! -f "$CORE/librayforce.a" ]; then
-            echo "::error::no staged core under target/debug/build — did build.rs run?"; exit 1
+          # The staged core is rayforce-sys's OUT_DIR/core. Cargo names that
+          # OUT_DIR in its build-script-executed message, fresh build or not;
+          # globbing target/ for it instead broke when cargo 1.100 moved
+          # build/<pkg>-<hash>/out to build/<pkg>/<hash>/out, a layout cargo
+          # documents as its own implementation detail. The JSON goes to a
+          # file, not a pipe, so a failed build still fails this step.
+          cargo build --workspace --tests --message-format=json-render-diagnostics > "$RUNNER_TEMP/build.jsonl"
+          OUT=$(jq -r 'select(.reason == "build-script-executed" and (.package_id | contains("rayforce-sys"))) | .out_dir' "$RUNNER_TEMP/build.jsonl" | tail -1)
+          # Absolute, as cargo reports it: cargo runs each test binary with the
+          # cwd set to its own crate root, so a workspace-relative
+          # RAYFORCE_BINARY would not resolve.
+          CORE="$OUT/core"
+          if [ -z "$OUT" ] || [ ! -f "$CORE/librayforce.a" ]; then
+            echo "::error::cargo reported no rayforce-sys OUT_DIR holding core/librayforce.a"; exit 1
           fi
           field() { sed -n "s/^const $1: &str = \"\(.*\)\";\$/\1/p" rayforce-sys/build.rs; }
           make -C "$CORE" release \

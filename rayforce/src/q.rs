@@ -1,8 +1,8 @@
 //! Q IPC client — connect to a Q server, send a query, get the response decoded
 //! into a rayforce [`Value`].
 //!
-//! Wraps the `rayforce-q` client (`q.c`/`q.h`), built by `rayforce-sys` from a
-//! local checkout (env `RAYFORCE_Q_SRC`, default `~/rayforce-q`). Requires a
+//! Wraps the `rayforce-q` client (`q.c`/`q.h`), built by `rayforce-sys` from
+//! the copy it vendors, or from a checkout `RAYFORCE_Q_SRC` names. Requires a
 //! live [`crate::Runtime`].
 //!
 //! [`QConnection`] is sync request/reply. To *receive* — a tickerplant or a
@@ -666,8 +666,8 @@ pub fn decode_response(msg: &[u8]) -> Result<Value> {
 /// q's `` cols#t `` does. The others are skipped by their serialized length:
 /// no string is built for a cell of a string column and no symbol of a symbol
 /// column is interned, so a caller that lands a few columns of a wide table no
-/// longer pays for all of them. Skipping reads only lengths, so a column
-/// [`decode_response`] rejects, a timespan, can be skipped.
+/// longer pays for all of them. Skipping reads only lengths, so a skipped
+/// column is never checked beyond its length.
 ///
 /// ```no_run
 /// # use rayforce::{q, Runtime, Table};
@@ -694,6 +694,13 @@ pub fn decode_response(msg: &[u8]) -> Result<Value> {
 ///   an `Err` either way.
 /// - A compressed message is still decompressed whole: q's compression does
 ///   not let a reader skip, so the saving starts after it.
+/// - A text column, q's general list of char vectors, comes back as a string
+///   vector (`RAY_STR`), as [`decode_response`] returns it. rayforce-q 2.7.0
+///   leaves it a list of string atoms here, and this converts it. One shape
+///   that rayforce-q 2.7.0 cannot project: a text column whose every cell is
+///   one character, which q sends as a single char vector, is an `Err`
+///   (`` domain: table add_col: column must be list/vector-like ``), though
+///   [`decode_response`] decodes it.
 ///
 /// Needs `rayforce-q` 2.5.0 or later. Like [`decode_response`], it must run on
 /// the thread that owns the [`crate::Runtime`].
@@ -725,7 +732,113 @@ pub fn decode_response_cols<S: AsRef<str>>(msg: &[u8], cols: &[S]) -> Result<Val
             err.len(),
         )
     };
-    unsafe { decoded(res, &err, "q_decode_cols failed") }
+    let v = unsafe { decoded(res, &err, "q_decode_cols failed") }?;
+    projected_str_columns(v)
+}
+
+/// Give the table [`decode_response_cols`] returns the string columns
+/// [`decode_response`] would.
+///
+/// q has no string vector: a text column travels as a general list of char
+/// vectors. Since rayforce-q 2.7.0 (its #44), `q_decode` turns such a column
+/// into a `RAY_STR` vector when it builds a table, but `q_decode_cols` builds
+/// the projected table without that step, so a kept text column comes back as
+/// a `RAY_LIST` of string atoms. This applies the same rule as `q_decode`: a
+/// non-empty list whose every element is a string atom becomes a string vector
+/// of those bytes. The projected table is a keyed table's value side, the
+/// second of the two tables it decodes to, or the whole message. A table that
+/// holds no such column comes back untouched; one that went through `q_decode`
+/// holds none, so this is a no-op once rayforce-q converts the projected
+/// columns itself.
+fn projected_str_columns(v: Value) -> Result<Value> {
+    if v.type_code() == sys::RAY_TABLE as i8 {
+        return Ok(str_columns(&v)?.unwrap_or(v));
+    }
+    if v.is_list() && v.len() == 2 {
+        let key = v.get(0)?;
+        let val = v.get(1)?;
+        if key.type_code() == sys::RAY_TABLE as i8 && val.type_code() == sys::RAY_TABLE as i8 {
+            if let Some(val) = str_columns(&val)? {
+                return Ok(Value::list(&[key, val]));
+            }
+        }
+    }
+    Ok(v)
+}
+
+/// The table `tbl` with each column [`str_vector`] converts replaced by its
+/// conversion, or `None` when no column converts. The other columns are shared
+/// with `tbl`, not copied.
+fn str_columns(tbl: &Value) -> Result<Option<Value>> {
+    let t = tbl.as_ptr();
+    let ncols = unsafe { sys::ray_table_ncols(t) };
+    let mut cols = Vec::with_capacity(ncols.max(0) as usize);
+    let mut converted = false;
+    for i in 0..ncols {
+        let col = unsafe { sys::ray_table_get_col_idx(t, i) };
+        // As `Table::column_at`: a column that does not resolve leaves the
+        // table as it was decoded.
+        if col.is_null() || unsafe { crate::raw::is_err(col) } {
+            return Ok(None);
+        }
+        let col = unsafe { Value::from_borrowed(col) };
+        match str_vector(&col)? {
+            Some(s) => {
+                converted = true;
+                cols.push(s);
+            }
+            None => cols.push(col),
+        }
+    }
+    if !converted {
+        return Ok(None);
+    }
+    unsafe {
+        let mut out = check(sys::ray_table_new(ncols))?;
+        for (i, col) in cols.iter().enumerate() {
+            // ray_table_add_col retains `col`, and on error releases `out`.
+            out = check(sys::ray_table_add_col(
+                out,
+                sys::ray_table_col_name(t, i as i64),
+                col.as_ptr(),
+            ))?;
+        }
+        Ok(Some(Value::from_owned(out)))
+    }
+}
+
+/// `col` as a `RAY_STR` vector when it is a non-empty list of string atoms,
+/// else `None`.
+fn str_vector(col: &Value) -> Result<Option<Value>> {
+    if !col.is_list() || col.is_empty() {
+        return Ok(None);
+    }
+    let n = col.len();
+    let mut items = Vec::with_capacity(n);
+    for i in 0..n {
+        let item = unsafe { sys::ray_list_get(col.as_ptr(), i as i64) };
+        if item.is_null() || unsafe { crate::raw::type_code(item) } != -(sys::RAY_STR as i8) {
+            return Ok(None);
+        }
+        items.push(item);
+    }
+    unsafe {
+        let mut out = Value::from_owned(check(sys::ray_vec_new(sys::RAY_STR as i8, n as i64))?);
+        for item in items {
+            // `col` holds `item` alive. ray_str_vec_append consumes the
+            // vector it is given and returns the one to keep. On an error it
+            // leaves the vector it was given alive; as at the crate's other
+            // consuming calls (`install_mutation`), that one is let go rather
+            // than risk a double release.
+            let next = sys::ray_str_vec_append(
+                out.into_raw(),
+                sys::ray_str_ptr(item),
+                sys::ray_str_len(item),
+            );
+            out = Value::from_owned(check(next)?);
+        }
+        Ok(Some(out))
+    }
 }
 
 /// Check the 8-byte wire header of a complete Q response message and return

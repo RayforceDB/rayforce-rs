@@ -66,12 +66,17 @@ extern "C" {
     /// As [`q_decode`], but a table comes back with only the `ncols` columns
     /// named in `cols`, in the order named (q's `cols#t`). The other columns
     /// are skipped by their serialized length: nothing is allocated or
-    /// interned for them, and a column `q_decode` rejects (a timespan) can be
-    /// skipped. For a keyed table the key comes back whole and the names pick
-    /// among the value columns. A name the table lacks is a `RAY_ERROR` naming
-    /// it; a null or repeated name returns null with `err` set. With
-    /// `ncols == 0`, or a message that is not a table, this is `q_decode`.
-    /// Since rayforce-q 2.5.0. Engine thread only.
+    /// interned for them, and nothing is checked beyond that length. For a
+    /// keyed table the key comes back whole and the names pick among the value
+    /// columns. A name the table lacks is a `RAY_ERROR` naming it; a null or
+    /// repeated name returns null with `err` set. With `ncols == 0`, or a
+    /// message that is not a table, this is `q_decode`. Since rayforce-q 2.5.0.
+    /// Engine thread only.
+    ///
+    /// In rayforce-q 2.7.0 the projected table's text columns are not turned
+    /// into `RAY_STR` vectors as `q_decode` turns them: a general list of char
+    /// vectors stays a `RAY_LIST` of string atoms, and a single char vector
+    /// (every cell one character) fails the table build.
     pub fn q_decode_cols(
         resp: *mut u8,
         resp_len: i64,

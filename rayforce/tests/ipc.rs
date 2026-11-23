@@ -158,7 +158,7 @@ fn connect_failure_names_its_cause() {
 
 /// Bind a listener that completes the TCP accept, reads the client's two-byte
 /// handshake, and answers with a wire version the core cannot speak. Returns
-/// the port. `RAY_SERDE_WIRE_VERSION` is 3, so 0xFF is reliably wrong.
+/// the port. `RAY_SERDE_WIRE_VERSION` is 4, so 0xFF is reliably wrong.
 fn spawn_wrong_version_peer() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -215,16 +215,21 @@ fn a_client_is_closed_before_its_scope_ends() {
 }
 
 /// Bind a listener that completes the handshake as a server without
-/// authentication does — `RAY_SERDE_WIRE_VERSION` (3), then no auth required —
-/// and then swallows every request without answering, until the client hangs
-/// up. Returns the port.
+/// authentication does, and then swallows every request without answering,
+/// until the client hangs up. Returns the port.
+///
+/// The reply echoes the client's wire version, the one byte a server of that
+/// version answers with (`RAY_SERDE_WIRE_VERSION`, 4 since core #1107, was 3),
+/// so a later bump does not turn this into a version-mismatch peer. Its second
+/// byte is 0x00: no auth required and no transport capability shared, so the
+/// connection stays on TCP however the client's capabilities read.
 fn spawn_silent_peer() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {
         if let Ok((mut sock, _)) = listener.accept() {
             let mut hs = [0u8; 2];
-            if sock.read_exact(&mut hs).is_ok() && sock.write_all(&[3u8, 0x00]).is_ok() {
+            if sock.read_exact(&mut hs).is_ok() && sock.write_all(&[hs[0], 0x00]).is_ok() {
                 let _ = std::io::copy(&mut sock, &mut std::io::sink());
             }
         }

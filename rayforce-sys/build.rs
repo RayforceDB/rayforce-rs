@@ -18,30 +18,38 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Version stamped into the vendored core at compile time. The core's Makefile
-/// normally resolves this from `git describe` (`Makefile:19`), but a crate
-/// unpacked from crates.io has no git history — without this the core would
-/// report itself as `0.0.0`.
+/// normally takes the newest `vX.Y.Z` tag of its repository (`Makefile:26`),
+/// but a crate unpacked from crates.io has no git history — without this the
+/// core would report itself as `0.0.0`.
 ///
-/// Must match the tag `vendor/rayforce` is pinned to. CI asserts the two agree;
-/// see the "Check vendored core pin" step in `.github/workflows/ci.yml`.
-const CORE_VERSION: &str = "3.0.1";
+/// When `vendor/rayforce` is pinned to a release, this is that release's tag.
+/// When it is pinned to a `dev` commit, as now, it is the newest release that
+/// commit contains, which is what the core's own Makefile stamps on it.
+/// Release tags sit on `master`: a dev commit contains one when the release
+/// commit is in its history, or the release commit's parent with the same
+/// tree, the release PR's head, is. CI asserts either form, see
+/// `scripts/check-vendored-pin.sh` and the "Check vendored core pin" step in
+/// `.github/workflows/ci.yml`.
+const CORE_VERSION: &str = "3.0.2";
 
 /// Commit the `vendor/rayforce` submodule is pinned to, stamped alongside
 /// [`CORE_VERSION`]. Also checked by CI's "Check vendored core pin" step.
 ///
 /// This must be passed explicitly for the same reason as the version, and for
-/// one more: `Makefile:27` resolves it with `git rev-parse --short HEAD`, and
+/// one more: `Makefile:34` resolves it with `git rev-parse --short HEAD`, and
 /// git searches *upward* from the working directory. Since the core is built
 /// under OUT_DIR, an unset value does not fall back to "unknown" — it silently
 /// reports the HEAD of whatever unrelated repository happens to enclose the
 /// build directory.
-const CORE_COMMIT: &str = "0aa2d6a";
+const CORE_COMMIT: &str = "e6deb32";
 
-/// Warning flags for the vendored core build — the core's own `WARNS`
-/// (`Makefile:35`) minus `-Werror`. Consumers compile this with whatever
+/// Warning flags for the vendored core build — the core's own `WARNS_BASE`
+/// (`Makefile:44`) minus `-Werror`. Consumers compile this with whatever
 /// toolchain they happen to have, and a new diagnostic from a future compiler
 /// should not be a hard failure inside someone else's dependency tree. The
-/// core's own CI is where `-Werror` belongs.
+/// core's own CI is where `-Werror` belongs. (Its `WARNS`, `Makefile:59`, adds
+/// a demotion of clang's AVX10 feature-promotion warning that only matters
+/// under `-Werror`.)
 const CORE_WARNS: &str = "-Wall -Wextra -Wstrict-prototypes -Wno-unused-parameter";
 
 /// Core headers outside `include/` that declare [`INTERNAL_FNS`]. Private to
@@ -191,8 +199,13 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", core.display());
     println!("cargo:rustc-link-lib=static=rayforce");
     println!("cargo:rustc-link-lib=dylib=m");
-    if cfg!(target_os = "linux") {
+    // The target's OS, not the host's that `cfg!` in a build script reads.
+    if env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "linux") {
         println!("cargo:rustc-link-lib=dylib=pthread");
+        // The core's RDMA transport (src/core/rdma.c) dlopens the verbs library
+        // at run time when `make lib` found its headers, and glibc before 2.34
+        // keeps dlopen in libdl. The core's own Linux LIBS carry -ldl for it.
+        println!("cargo:rustc-link-lib=dylib=dl");
     }
     // Expose the staged core dir to downstream crates (e.g. for symfile
     // fixtures) — this is where librayforce.a and the headers actually live.
@@ -204,19 +217,19 @@ fn main() {
         .clang_arg(format!("-I{}", include.display()))
         .clang_arg(format!("-I{}", core.join("src").display()))
         // Everything the public header declares. This bound is load-bearing:
-        // the private headers added below declare ~700 functions and ~100 RAY_*
+        // the private headers added below declare ~800 functions and ~120 RAY_*
         // constants between them, so a blanket `ray_.*` would drag in the whole
         // internal surface. Anchored loosely because the staged path lives under
         // OUT_DIR, which may itself contain regex metacharacters.
         .allowlist_file(".*/include/rayforce\\.h")
-        // The public header leaves ray_runtime_s incomplete (`rayforce.h:771`)
-        // and `core/runtime.h:156` completes it. Left alone, bindgen would
+        // The public header leaves ray_runtime_s incomplete (`rayforce.h:843`)
+        // and `core/runtime.h:172` completes it. Left alone, bindgen would
         // publish the runtime internals — ray_vm_t and friends, ~67 KB of
         // private layout that would then churn on every core bump. Opaque
         // keeps it a handle, which is all the public API ever passes around.
         .opaque_type("ray_runtime_s")
-        // The same for the poll: `rayforce.h:800` leaves `struct ray_poll`
-        // incomplete and `core/poll.h:108` completes it, and left alone it
+        // The same for the poll: `rayforce.h:872` leaves `struct ray_poll`
+        // incomplete and `core/poll.h:171` completes it, and left alone it
         // would publish the selector table and every type it reaches.
         .opaque_type("ray_poll")
         // ray_t is a union with a flexible array member + nested anon structs;
@@ -285,8 +298,8 @@ fn out_dir() -> PathBuf {
 /// Mirror the parts of the vendored core that `make lib` needs into
 /// `OUT_DIR/core`, and return that path.
 ///
-/// The core's Makefile builds strictly in-tree — `Makefile:168` names objects
-/// `src/<dir>/<file>.rel.o` and `Makefile:238` drops `librayforce.a` at the
+/// The core's Makefile builds strictly in-tree — `Makefile:271` names objects
+/// `src/<dir>/<file>.lib.o` and `Makefile:324` drops `librayforce.a` at the
 /// root — so running it where the sources sit would write into the crate's own
 /// directory. For a crates.io consumer that is the shared registry cache, and
 /// it is what makes `cargo package`'s verify step fail with "files added".
@@ -350,7 +363,7 @@ fn is_current(from: &Path, to: &Path) -> bool {
 
 /// Delete staged sources that no longer exist upstream. Without this, a file
 /// dropped by a core version bump would linger in OUT_DIR and still be compiled
-/// in via the Makefile's `$(wildcard src/*/*.c)` (`Makefile:159`). Only `.c` /
+/// in via the Makefile's `$(wildcard src/*/*.c)` (`Makefile:221`). Only `.c` /
 /// `.h` are considered, so the objects and archive built here survive.
 fn prune_stale(dst: &Path, staged: &HashSet<PathBuf>) {
     for root in [dst.join("src"), dst.join("include")] {
@@ -381,7 +394,7 @@ fn walk(root: &Path, visit: &mut dyn FnMut(&Path)) {
 }
 
 /// Drop the compiled objects when the flags stamped into them change. The
-/// Makefile tracks header dependencies (`Makefile:44`) but not flag changes,
+/// Makefile tracks header dependencies (`Makefile:69`) but not flag changes,
 /// so editing [`CORE_VERSION`] on its own would otherwise leave the previous
 /// string baked into objects that `make` still considers up to date.
 ///
@@ -442,7 +455,7 @@ fn sanitize_libclang_path() {
 ///
 /// `Release` is the default and what every published build uses. `Debug` adds
 /// `-DDEBUG`, which compiles in the core's invariant checks and its stale
-/// retain/release detector (`ray_dfd_check_live` in `src/mem/cow.c`) — the only
+/// retain/release detector (`ray_dfd_check_live` in `src/mem/heap.c`) — the only
 /// tool that can see a use-after-free inside the engine's `mmap`-backed pool
 /// allocator, which ASan and Valgrind are structurally blind to. Opt in with
 /// `RAYFORCE_CORE_DEBUG=1`, then run with `RAY_DFD=1` to arm the detector.

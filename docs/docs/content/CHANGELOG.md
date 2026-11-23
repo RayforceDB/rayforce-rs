@@ -3,7 +3,7 @@
 All notable changes to `rayforce` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 1.5.0
 
 ### Added
 
@@ -15,6 +15,101 @@ All notable changes to `rayforce` are documented here. This project adheres to
   C side reads 0 as no timeout or as the default keepalive, and so is either
   past `i32::MAX` milliseconds. `rayforce-sys` binds `q_connect_opts` and the
   `Q_KEEPALIVE_*` constants.
+- **Timespan values.** The core's `TIMESPAN` (type 16), a signed duration in
+  nanoseconds, is what subtracting two timestamps yields. `Value::timespan_nanos`
+  builds an atom and `as_timespan_nanos` reads one; `timespan_nanos_slice`
+  views a vector's `&[i64]`. With the `chrono` feature, `chrono::Duration`
+  converts both ways; past the ±~292 years an i64 of nanoseconds holds, it
+  saturates to that limit, never to `i64::MIN`, which is the null. A null
+  timespan atom is `None` as `Option<chrono::Duration>`.
+
+### Changed
+
+- **Native IPC speaks wire version 4 and refuses 3: upgrade both ends
+  together.** The core now sends a remote error's message across the wire
+  with its code (core #1107), so a `TcpClient` error reads as the server's
+  (`type: cannot add i64 and sym`, where it carried the code alone). The
+  handshake requires the same version on both sides, so a `TcpClient` built on
+  this release cannot connect to a v3.0.x or older server, failing with
+  `wire version mismatch`, and a client on an older core cannot connect to
+  `Poll::serve_ipc`. The Q wire is unaffected.
+
+- **The vendored core is dev `e6deb32`, from v3.0.1 (`0aa2d6a`).** The core
+  has released nothing since v3.0.2, so this pins a commit of its `dev` branch:
+  v3.0.2 plus 248 commits, 32 features, 54 performance changes and 176 fixes
+  past v3.0.1's sources. `CORE_VERSION` is `3.0.2`, the newest release the
+  commit contains, which is what the core's own Makefile stamps on it, so
+  `.sys.build` reports version 3.0.2.
+  `scripts/check-vendored-pin.sh` and CI accept such a pin, and still refuse a
+  `CORE_VERSION` the commit does not contain or one older than a release it
+  does. What reaches this crate besides the wire version:
+  - A native connection to a server on the same host moves from TCP to
+    shared-memory rings once the handshake agrees (core #1046), and across
+    hosts to RDMA where both sides have it. `TcpClient` connections do this by
+    default, as the suite now exercises; `rt.eval("(.ipc.transport 'tcp)")`
+    keeps this process on TCP. The RDMA transport is compiled in when `make
+    lib` finds the verbs headers (`libibverbs-dev`) and then `dlopen`s the
+    library, so `rayforce-sys` now links `-ldl` on Linux, as the core's own
+    Makefile does (glibc 2.34 and later have it in libc).
+  - `include/rayforce.h` grows: `RAY_ERR_ACCESS`, an evaluation refused in
+    restricted mode (`ErrorCode::Other`, code string `access`); the heap's
+    anon watermark (`ray_heap_set_anon_watermark`, `ray_heap_anon_watermark`,
+    `ray_heap_anon_peak`); one password for every listener on a poll
+    (`ray_poll_auth_set`, `ray_poll_auth_check`, `ray_poll_auth_restricted`,
+    `RAY_POLL_AUTH_API`); and `ray_error_msg_set`, `ray_error_usage` and
+    `ray_error_usage_set`. `rayforce-sys` binds them all; the safe crate wraps
+    none yet. Of the private layouts the bindings carry, `ray_selector` gains
+    three trailing transport fields and `ray_ipc_tx_info_t` a `transport` byte.
+    The nineteen `INTERNAL_FNS` signatures are unchanged.
+  - Rayfall changes a caller can see: `TIME - TIME` is a timespan; a builtin
+    called with the wrong arguments names the ones it expects; a `try` handler
+    gets `{code msg}` for an engine error, not 0; an explicit cast to I16,
+    I32, DATE or TIME that lands on the minimum is null.
+  - Engine highlights: `.json.parse`/`.json.get`/`.json.format`; `mmu`,
+    `inv`, `lsq` and `gram` on lists of numeric rows; parquet LZ4, UINT64 and
+    DECIMAL columns and multi-file `.parquet.parted`; `union-all` over parted
+    tables; timestamp partition keys and partition pruning by column
+    statistics; a GUID hash index; `.sys.profile` and `.sys.trust`; and
+    faster grouping, joins, finds and parquet imports.
+
+- **rayforce-q is 2.7.0 (`8bab7ec`), from 2.6.0 (`69b4210`).** What reaches
+  this crate:
+  - A q timespan decodes to a timespan, and a timespan encodes as q's. Before,
+    `q::decode_response` and `QConnection::execute` refused a message holding
+    one (`q: unsupported wire type`), and `q::encode` could not send one.
+  - **A table's text column decodes as a string vector** (`RAY_STR`, type 13)
+    where it was a list of string atoms (type 0). `get(i)` still yields string
+    atoms, but `is_list()` is now false, so **code that read a q text column as
+    a list needs updating**. A text column whose every cell is one character,
+    which q sends as one char vector, now decodes instead of failing.
+  - `q::decode_response_cols` returns text columns as `decode_response` does.
+    rayforce-q 2.7.0's `q_decode_cols` skips that conversion, so this crate
+    applies it to the projected table: plain, or a keyed table's value side.
+    One shape it cannot repair: a kept one-character text column still fails
+    inside rayforce-q (`domain: table add_col: column must be
+    list/vector-like`), though `decode_response` decodes it. A fix is on
+    rayforce-q branch `fix/decode-cols-text-columns`.
+  - A `Poll::serve_q` listener sends an error's text to the q client
+    (`'type: cannot add i64 and str`, and a raised value as raised), where only
+    the category went. An empty request is answered with `(::)` rather than a
+    parse error. A sync request is evaluated as data, with every list argument
+    quoted, so a list argument whose head names a function reaches the handler
+    as the list, where it used to be called. Replies are written directly, with
+    `TCP_NODELAY`, and a hard send failure closes the connection.
+  - `QConnection::connect_with` with an empty user and a password sends
+    `:password`, where it sent the anonymous handshake.
+  - rayforce-q's hooks, `.q.post`, `.q.readonly` and `q_serve_at` are not
+    exposed here.
+
+### Fixed
+
+- **A timespan vector is a vector.** `Value::is_vec` stopped at type 13 while
+  the core's `ray_is_vector_type` also counts 16, so a timespan vector reported
+  `len() == 0`, `get` refused it as "not a vector or list", and
+  `is_null_at` was always false. All three now treat it as the core does, and
+  an `i64::MIN` timespan atom is `is_atom_null`. Rayfall could already produce
+  one since core v3.0.1 (1.4.0); with rayforce-q 2.7.0 a q timespan decodes to
+  one too.
 
 ## 1.4.0
 

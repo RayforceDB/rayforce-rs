@@ -127,7 +127,7 @@ To move the pin, move both:
 
 ```sh
 git -C rayforce-sys/vendor/rayforce fetch --tags
-git -C rayforce-sys/vendor/rayforce checkout v3.0.1
+git -C rayforce-sys/vendor/rayforce checkout v3.0.2
 git add rayforce-sys/vendor/rayforce
 
 git -C rayforce-sys/vendor/rayforce rev-parse --short=7 HEAD   # CORE_COMMIT
@@ -136,6 +136,11 @@ $EDITOR rayforce-sys/build.rs                                  # CORE_VERSION, C
 ./scripts/check-vendored-pin.sh    # names the mismatch if they disagree
 cargo test --workspace
 ```
+
+The pin may also be a commit of the core's `dev` branch, between releases. Then
+`CORE_VERSION` is the newest release that commit contains, what the core's own Makefile
+stamps on it (release tags sit on `master`, so `git describe` would name an older one), and
+the check asserts that it is.
 
 `rayforce-sys/vendor/rayforce-q` works the same way, minus the constants — nothing is
 stamped from it. The build script needs rayforce-q 2.5.0 or later, the first with
