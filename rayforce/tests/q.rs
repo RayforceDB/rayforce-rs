@@ -42,14 +42,23 @@ fn float_vec(vals: &[f64]) -> Vec<u8> {
     b
 }
 
-/// Timespan vector: type 16, nanoseconds as i64. `q_decode` has no branch for
-/// it, so a message carrying one decodes only when the column is skipped.
+/// Timespan vector: type 16, nanoseconds as i64. Since rayforce-q 2.7.0 it
+/// decodes to a `RAY_TIMESPAN` vector; before, `q_decode` refused it.
 fn timespan_vec(vals: &[i64]) -> Vec<u8> {
     let mut b = vec![16u8, 0u8];
     b.extend_from_slice(&(vals.len() as i32).to_le_bytes());
     for v in vals {
         b.extend_from_slice(&v.to_le_bytes());
     }
+    b
+}
+
+/// Char vector: type 10. As a table column it is how q sends a text column
+/// whose every cell is one character.
+fn char_vec(s: &str) -> Vec<u8> {
+    let mut b = vec![10u8, 0u8];
+    b.extend_from_slice(&(s.len() as i32).to_le_bytes());
+    b.extend_from_slice(s.as_bytes());
     b
 }
 
@@ -226,8 +235,7 @@ fn decode_response_rejects_non_response_messages() {
 // --- projected decode (q::decode_response_cols) ----------------------------
 
 /// A five-column table of every column shape the projected decode treats
-/// differently: fixed width, symbol, string, a timespan `q_decode` refuses, and
-/// a float.
+/// differently: fixed width, symbol, string, timespan, and a float.
 fn wide_table() -> Vec<u8> {
     table(
         &["seq", "sym", "note", "span", "px"],
@@ -250,9 +258,6 @@ fn wire(v: &Value) -> Vec<u8> {
 fn decode_response_cols_keeps_the_named_columns_in_order() {
     Runtime::scope(|_rt| {
         let full = msg(&wide_table());
-        // The timespan column is why the whole message cannot be decoded.
-        assert!(q::decode_response(&full).is_err());
-
         let v = q::decode_response_cols(&full, &["px", "note", "seq", "sym"]).unwrap();
         let t = Table::from_value(v).unwrap();
         assert_eq!(t.shape(), (3, 4));
@@ -268,6 +273,8 @@ fn decode_response_cols_keeps_the_named_columns_in_order() {
         let sym = t.column("sym").unwrap();
         assert_eq!(sym.get(1).unwrap().as_sym().unwrap(), "MSFT");
         let note = t.column("note").unwrap();
+        // A string vector, as `decode_response` gives it, not a list.
+        assert_eq!(note.type_code(), rayforce::sys::RAY_STR as i8);
         assert_eq!(note.get(0).unwrap().as_string().unwrap(), "a");
         assert_eq!(note.get(1).unwrap().as_string().unwrap(), "bc");
         assert_eq!(note.get(2).unwrap().as_string().unwrap(), "");
@@ -298,6 +305,100 @@ fn decode_response_cols_equals_decoding_the_projection() {
         for (g, w) in got.columns().unwrap().iter().zip(want.columns().unwrap()) {
             assert_eq!(wire(g), wire(&w));
         }
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn decode_response_decodes_a_timespan_column() {
+    Runtime::scope(|_rt| {
+        let t = Table::from_value(q::decode_response(&msg(&table(
+            &["span"],
+            &[timespan_vec(&[1_500, i64::MIN, -7])],
+        )))?)?;
+        let span = t.column("span")?;
+        assert_eq!(span.type_code(), rayforce::sys::RAY_TIMESPAN as i8);
+        assert!(span.is_vec());
+        assert_eq!(span.len(), 3);
+        assert_eq!(span.timespan_nanos_slice()?, &[1_500, i64::MIN, -7]);
+        assert_eq!(span.get(0)?.as_timespan_nanos()?, 1_500);
+        // 0Nn is the null timespan, and its cell boxes as the untyped null.
+        assert!(span.is_null_at(1));
+        assert!(span.get(1)?.is_null());
+        assert_eq!(span.get(2)?.as_timespan_nanos()?, -7);
+        #[cfg(feature = "chrono")]
+        assert_eq!(
+            span.to_vec::<Option<chrono::Duration>>()?,
+            [
+                Some(chrono::Duration::nanoseconds(1_500)),
+                None,
+                Some(chrono::Duration::nanoseconds(-7)),
+            ]
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Each column of `a` and `b` has the same name, type and wire form.
+fn same_columns(a: &Table, b: &Table) {
+    assert_eq!(a.column_names(), b.column_names());
+    for (x, y) in a.columns().unwrap().iter().zip(b.columns().unwrap()) {
+        assert_eq!(x.type_code(), y.type_code());
+        assert_eq!(wire(x), wire(&y));
+    }
+}
+
+#[test]
+fn decode_response_cols_gives_a_keyed_tables_text_columns_as_decode_response_does() {
+    Runtime::scope(|_rt| {
+        let kt = msg(&keyed(
+            table(&["k"], &[string_col(&["x", "yz"])]),
+            table(
+                &["note", "a"],
+                &[string_col(&["p", "qr"]), long_vec(&[1, 2])],
+            ),
+        ));
+        let whole = q::decode_response(&kt)?;
+        let kept = q::decode_response_cols(&kt, &["note", "a"])?;
+        for i in 0..2 {
+            let w = Table::from_value(whole.get(i)?)?;
+            let k = Table::from_value(kept.get(i)?)?;
+            same_columns(&k, &w);
+        }
+        let val = Table::from_value(kept.get(1)?)?;
+        assert_eq!(
+            val.column("note")?.type_code(),
+            rayforce::sys::RAY_STR as i8
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// rayforce-q 2.7.0's `q_decode_cols` builds its table without the text-column
+/// step `q_decode` takes, and the Rust side can only convert what it gets back.
+/// A text column whose every cell is one character travels as one char vector,
+/// which that table build refuses. When rayforce-q fixes it, this fails: update
+/// the `decode_response_cols` docs and flip the assertion.
+#[test]
+fn decode_response_cols_cannot_project_a_one_character_text_column_on_rayforce_q_2_7_0() {
+    Runtime::scope(|_rt| {
+        let m = msg(&table(
+            &["seq", "c"],
+            &[long_vec(&[1, 2, 3]), char_vec("abc")],
+        ));
+        let whole = Table::from_value(q::decode_response(&m)?)?;
+        let c = whole.column("c")?;
+        assert_eq!(c.type_code(), rayforce::sys::RAY_STR as i8);
+        assert_eq!(c.get(2)?.as_string()?, "c");
+
+        let err = q::decode_response_cols(&m, &["c"]).unwrap_err();
+        assert!(
+            err.to_string().contains("column must be list/vector-like"),
+            "unexpected error: {err}"
+        );
         Ok(())
     })
     .unwrap();

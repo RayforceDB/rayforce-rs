@@ -8,7 +8,10 @@ use std::net::TcpStream;
 use std::os::fd::AsRawFd;
 
 const PREFIX: u32 = 0xCEFA_DEFA;
-const VERSION: u8 = 3;
+/// The core's `RAY_SERDE_WIRE_VERSION`: 4 since core #1107, which put an
+/// error's message on the wire after its code. The server drops a peer whose
+/// handshake names any other version, and checks it in every frame header.
+const VERSION: u8 = 4;
 const SYNC: u8 = 1;
 const STR: i8 = -13;
 const I64: i8 = -5;
