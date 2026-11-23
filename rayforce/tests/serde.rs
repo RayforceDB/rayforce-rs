@@ -124,3 +124,36 @@ fn deserialize_garbage_errors() {
     })
     .unwrap();
 }
+
+/// `frame_len` is exactly `serialize().len()` for every value shape, without serializing.
+#[test]
+fn frame_len_matches_serialize() {
+    Runtime::scope(|rt| {
+        let mut values = vec![
+            Value::i64(7),
+            Value::f64(1.25),
+            Value::bool(false),
+            Value::sym("s"),
+            Value::string(""),
+            Value::string("a string value"),
+            Value::string(&"x".repeat(1 << 16)),
+            Value::vec(&[1i64, 2, 3]),
+            Value::vec::<i64>(&[]),
+            Value::vec(&[1.5f64, 2.5]),
+            Value::list(&[Value::i64(1), Value::string("two"), Value::sym("three")]),
+            Value::list(&[]),
+        ];
+        values.push(rt.eval("(dict [a b] (list 1 \"x\"))").unwrap());
+        values.push(
+            rt.eval("(table [a b c] (list [1 2 3] ['x 'y 'z] (list \"p\" \"q\" \"r\")))")
+                .unwrap(),
+        );
+        values.push(rt.eval("(list (list 1 (list 2 \"deep\")) [4 5])").unwrap());
+        for v in &values {
+            let bytes = v.serialize().unwrap();
+            assert_eq!(v.frame_len().unwrap(), bytes.len(), "{v:?}");
+        }
+        Ok(())
+    })
+    .unwrap();
+}
