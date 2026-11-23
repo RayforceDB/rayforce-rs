@@ -34,10 +34,10 @@ places that must agree:
 | The core sources | the `rayforce-sys/vendor/rayforce` submodule |
 | The version stamped into the library | `CORE_VERSION` / `CORE_COMMIT` in `rayforce-sys/build.rs` |
 
-The constants exist because the core's `Makefile` normally resolves its version
-from `git describe`, and a crate unpacked from crates.io has no git history to
-read. `scripts/check-vendored-pin.sh` asserts the two agree, and CI runs it on
-every push.
+The constants exist because the core's `Makefile` normally takes its version
+from the newest `vX.Y.Z` tag of its repository, and a crate unpacked from
+crates.io has no git history to read. `scripts/check-vendored-pin.sh` asserts
+the two agree, and CI runs it on every push.
 
 As a consumer you get the core that matches the `rayforce` version you depend
 on — pick a different core by picking a different `rayforce` release. The two
@@ -99,6 +99,14 @@ And check the result:
 ./scripts/check-vendored-pin.sh   # fails, with the mismatch named, if they disagree
 cargo test --workspace
 ```
+
+Between releases the pin can be a commit of the core's `dev` branch instead of
+a tag. `CORE_COMMIT` is that commit, and `CORE_VERSION` the newest release it
+contains, which is what the core's own `Makefile` stamps on it. Release tags
+sit on `master`, so a release counts as contained when its commit is an
+ancestor of the pin, or when the release commit's parent with the same tree is:
+a `dev` → `master` merge before the core merges it back. The check fails when
+the pin contains no release under `CORE_VERSION`, or contains a newer one.
 
 The same applies to `rayforce-sys/vendor/rayforce-q`, minus the constants —
 nothing is stamped from it, so moving the submodule is the whole change.
