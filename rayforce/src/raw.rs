@@ -87,10 +87,12 @@ pub(crate) unsafe fn is_atom(v: Raw) -> bool {
     t < 0 || t >= sys::RAY_LAMBDA as i8
 }
 
+/// Mirrors the header's inline `ray_is_vector_type`: the contiguous run of
+/// vector types, plus `RAY_TIMESPAN` (16), which sits past the run.
 #[inline]
 pub(crate) unsafe fn is_vec(v: Raw) -> bool {
     let t = type_code(v);
-    t >= sys::RAY_BOOL as i8 && t <= sys::RAY_STR as i8
+    (t >= sys::RAY_BOOL as i8 && t <= sys::RAY_STR as i8) || t == sys::RAY_TIMESPAN as i8
 }
 
 /// Vector / list element count (reads the `len` arm of the value union).
@@ -190,7 +192,7 @@ pub(crate) unsafe fn atom_is_null(v: Raw) -> bool {
     match (-t) as u32 {
         sys::RAY_F64 => as_f64(v).is_nan(),
         sys::RAY_F32 => (as_f64(v) as f32).is_nan(),
-        sys::RAY_I64 | sys::RAY_TIMESTAMP => as_i64(v) == i64::MIN,
+        sys::RAY_I64 | sys::RAY_TIMESTAMP | sys::RAY_TIMESPAN => as_i64(v) == i64::MIN,
         sys::RAY_I32 | sys::RAY_DATE | sys::RAY_TIME => as_i32(v) == i32::MIN,
         sys::RAY_I16 => as_i16(v) == i16::MIN,
         sys::RAY_SYM => as_i64(v) == 0,

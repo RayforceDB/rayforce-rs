@@ -54,6 +54,7 @@ The atom code and its vector code are mirror images: an `I64` atom is `-5`, an
 | [GUID](guid.md) | 11 | `Value::guid(&[u8;16])` | — | `as_guid` |
 | [Symbol](symbol.md) | 12 | `Value::sym(&str)` | `Value::sym_vec(&[..])` | `as_sym` |
 | [String](string.md) | 13 | `Value::string(&str)` | `Value::str_vec(&[..])` | `as_string` |
+| [Timespan](temporal.md) | 16 | `Value::timespan_nanos(i64)` | — | `as_timespan_nanos` / `timespan_nanos_slice` |
 | [List](list.md) | 0 | `Value::list(&[..])` | — | `get` |
 | [Dict](dict.md) | 99 | `Value::dict(keys, values)` | — | `dict_get` |
 | [Table](../table/overview.md) | 98 | `Table::new(..)` | — | `column(..)` |

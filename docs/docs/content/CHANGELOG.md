@@ -15,6 +15,23 @@ All notable changes to `rayforce` are documented here. This project adheres to
   C side reads 0 as no timeout or as the default keepalive, and so is either
   past `i32::MAX` milliseconds. `rayforce-sys` binds `q_connect_opts` and the
   `Q_KEEPALIVE_*` constants.
+- **Timespan values.** The core's `TIMESPAN` (type 16), a signed duration in
+  nanoseconds, is what subtracting two timestamps yields. `Value::timespan_nanos`
+  builds an atom and `as_timespan_nanos` reads one; `timespan_nanos_slice`
+  views a vector's `&[i64]`. With the `chrono` feature, `chrono::Duration`
+  converts both ways; past the ±~292 years an i64 of nanoseconds holds, it
+  saturates to that limit, never to `i64::MIN`, which is the null. A null
+  timespan atom is `None` as `Option<chrono::Duration>`.
+
+### Fixed
+
+- **A timespan vector is a vector.** `Value::is_vec` stopped at type 13 while
+  the core's `ray_is_vector_type` also counts 16, so a timespan vector reported
+  `len() == 0`, `get` refused it as "not a vector or list", and
+  `is_null_at` was always false. All three now treat it as the core does, and
+  an `i64::MIN` timespan atom is `is_atom_null`. Rayfall could already produce
+  one since core v3.0.1 (1.4.0); with rayforce-q 2.7.0 a q timespan decodes to
+  one too.
 
 ## 1.4.0
 

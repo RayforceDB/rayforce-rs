@@ -104,6 +104,13 @@ impl Value {
         assert_on_runtime_thread("Value::timestamp_nanos");
         unsafe { own(sys::ray_timestamp(ns)) }
     }
+    /// A timespan atom: a signed duration in raw nanoseconds, what subtracting
+    /// two timestamps yields and how a q timespan decodes. `i64::MIN` is its
+    /// null.
+    pub fn timespan_nanos(ns: i64) -> Value {
+        assert_on_runtime_thread("Value::timespan_nanos");
+        unsafe { own(sys::ray_timespan(ns)) }
+    }
 
     /// A GUID atom from 16 raw bytes.
     pub fn guid(bytes: &[u8; 16]) -> Value {
@@ -194,6 +201,11 @@ impl Value {
     /// Read a timestamp atom as raw nanoseconds since 2000-01-01 UTC.
     pub fn as_timestamp_nanos(&self) -> Result<i64> {
         self.expect_atom(sys::RAY_TIMESTAMP)?;
+        Ok(unsafe { raw::as_i64(self.as_ptr()) })
+    }
+    /// Read a timespan atom as raw nanoseconds.
+    pub fn as_timespan_nanos(&self) -> Result<i64> {
+        self.expect_atom(sys::RAY_TIMESPAN)?;
         Ok(unsafe { raw::as_i64(self.as_ptr()) })
     }
 

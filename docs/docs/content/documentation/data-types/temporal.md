@@ -1,12 +1,14 @@
 # :material-clock-outline: Temporal
 
-Rayforce has three temporal types, all measured against a **2000-01-01** epoch:
+Rayforce has three temporal types measured against a **2000-01-01** epoch, and
+a timespan, a signed duration:
 
 | Type | Unit | Atom constructor | Reader | Slice reader |
 |------|------|------------------|--------|--------------|
 | `Date` | days since 2000-01-01 | `Value::date_days(i32)` | `as_date_days` | `date_days_slice` |
 | `Time` | milliseconds since midnight | `Value::time_millis(i32)` | `as_time_millis` | `time_millis_slice` |
 | `Timestamp` | nanoseconds since 2000-01-01 UTC | `Value::timestamp_nanos(i64)` | `as_timestamp_nanos` | `timestamp_nanos_slice` |
+| `Timespan` | nanoseconds, signed | `Value::timespan_nanos(i64)` | `as_timespan_nanos` | `timespan_nanos_slice` |
 
 !!! note "Assume a live runtime"
     ```rust
@@ -27,10 +29,14 @@ assert_eq!(
     Value::timestamp_nanos(1_000_000_000).as_timestamp_nanos()?,
     1_000_000_000,
 );
+assert_eq!(Value::timespan_nanos(-1_500).as_timespan_nanos()?, -1_500);
 ```
 
 Note the widths: `Date` and `Time` carry an `i32` offset, while `Timestamp`
-carries an `i64` (nanoseconds need the extra range).
+and `Timespan` carry an `i64` (nanoseconds need the extra range).
+
+A timespan is what subtracting two timestamps yields, and what a q timespan
+decodes to. Its null is `i64::MIN`, as for a timestamp.
 
 ## Chrono conversions
 
@@ -49,10 +55,15 @@ assert_eq!(t.to_value().extract::<NaiveTime>()?, t);
 
 let ts = Utc.with_ymd_and_hms(2021, 6, 15, 13, 30, 45).unwrap();
 assert_eq!(ts.to_value().extract::<chrono::DateTime<Utc>>()?, ts);
+
+let span = chrono::Duration::milliseconds(-250);
+assert_eq!(span.to_value().extract::<chrono::Duration>()?, span);
 ```
 
-The mapping is `NaiveDate` ↔ `Date`, `NaiveTime` ↔ `Time`, and
-`DateTime<Utc>` ↔ `Timestamp`.
+The mapping is `NaiveDate` ↔ `Date`, `NaiveTime` ↔ `Time`,
+`DateTime<Utc>` ↔ `Timestamp`, and `chrono::Duration` ↔ `Timespan`. A
+`chrono::Duration` past the ±~292 years an i64 of nanoseconds holds
+saturates to that limit.
 
 ## Slice readers
 
@@ -66,7 +77,7 @@ assert!(v.timestamp_nanos_slice().is_err());
 ```
 
 - `date_days_slice()` and `time_millis_slice()` return `&[i32]`.
-- `timestamp_nanos_slice()` returns `&[i64]`.
+- `timestamp_nanos_slice()` and `timespan_nanos_slice()` return `&[i64]`.
 
 !!! tip "Everything is relative to 2000-01-01"
     Unlike Unix time (epoch 1970), Rayforce dates and timestamps count from

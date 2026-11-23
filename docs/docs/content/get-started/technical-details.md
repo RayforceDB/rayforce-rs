@@ -136,7 +136,8 @@ Runtime::scope(|_rt| {
 ```
 
 The same applies to the typed slice readers for temporal and boolean columns
-(`date_days_slice`, `time_millis_slice`, `timestamp_nanos_slice`, `bool_slice`).
+(`date_days_slice`, `time_millis_slice`, `timestamp_nanos_slice`,
+`timespan_nanos_slice`, `bool_slice`).
 
 ## :material-arrow-right: Next steps
 

@@ -84,6 +84,40 @@ fn temporal_raw_roundtrips() {
                 .unwrap(),
             1_000_000_000
         );
+        assert_eq!(
+            Value::timespan_nanos(-1_500).as_timespan_nanos().unwrap(),
+            -1_500
+        );
+        // A timespan is its own type: neither a timestamp nor an i64.
+        assert!(Value::timespan_nanos(1).as_timestamp_nanos().is_err());
+        assert!(Value::timespan_nanos(1).as_i64().is_err());
+        assert!(Value::timespan_nanos(i64::MIN).is_atom_null());
+        assert!(!Value::timespan_nanos(0).is_atom_null());
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn subtracting_timestamps_yields_a_timespan() {
+    Runtime::scope(|_rt| {
+        let one = eval("(- 2000.01.02D00:00:00.000000000 2000.01.01D00:00:00.000000000)").unwrap();
+        assert_eq!(one.type_code(), -(rayforce::sys::RAY_TIMESPAN as i8));
+        assert_eq!(one.as_timespan_nanos().unwrap(), 86_400_000_000_000);
+        assert_eq!(
+            Value::timespan_nanos(86_400_000_000_000).format(),
+            one.format()
+        );
+
+        let v = eval(
+            "(- [2000.01.01D00:00:00.000000002 2000.01.01D00:00:00.000000005] \
+             2000.01.01D00:00:00.000000001)",
+        )
+        .unwrap();
+        assert_eq!(v.type_code(), rayforce::sys::RAY_TIMESPAN as i8);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v.timespan_nanos_slice().unwrap(), &[1, 4]);
+        assert_eq!(v.get(1).unwrap().as_timespan_nanos().unwrap(), 4);
         Ok(())
     })
     .unwrap();
@@ -160,6 +194,20 @@ fn chrono_roundtrips() {
         assert_eq!(
             ts.to_value().extract::<chrono::DateTime<Utc>>().unwrap(),
             ts
+        );
+
+        let span = chrono::Duration::milliseconds(-250);
+        assert_eq!(span.to_value().as_timespan_nanos().unwrap(), -250_000_000);
+        assert_eq!(span.to_value().extract::<chrono::Duration>().unwrap(), span);
+        // Past what i64 nanoseconds hold, it saturates, and never to the null.
+        let far = chrono::Duration::days(300 * 365);
+        assert_eq!(far.to_value().as_timespan_nanos().unwrap(), i64::MAX);
+        assert_eq!((-far).to_value().as_timespan_nanos().unwrap(), i64::MIN + 1);
+        assert_eq!(
+            Value::timespan_nanos(i64::MIN)
+                .extract::<Option<chrono::Duration>>()
+                .unwrap(),
+            None
         );
         Ok(())
     })

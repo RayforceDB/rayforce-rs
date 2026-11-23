@@ -149,7 +149,7 @@ impl Value {
         unsafe { raw::is_atom(self.as_ptr()) }
     }
 
-    /// True for homogeneous vectors (bool…str).
+    /// True for homogeneous vectors (bool…str, and timespan).
     #[inline]
     pub fn is_vec(&self) -> bool {
         unsafe { raw::is_vec(self.as_ptr()) }
